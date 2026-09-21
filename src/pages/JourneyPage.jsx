@@ -39,7 +39,7 @@ export default function JourneyPage({
         user={user}
         onSignOut={onSignOut}
         onGoBoard={scrollToBoard}
-        onGoPractice={() => scrollTo(coachRef)}
+        onGoPractice={onPractice}
         onGoReports={() => scrollTo(wallRef)}
       />
 

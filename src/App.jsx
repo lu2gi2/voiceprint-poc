@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import AuthPage from './pages/AuthPage';
 import JourneyPage from './pages/JourneyPage';
+import AssessmentsPage from './pages/AssessmentsPage';
+import SessionPage from './pages/SessionPage';
 import StatsPage from './pages/StatsPage';
 import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
 import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
 
-/* Two views, no router — the POC is a single flow: the journey page, and the
-   full report you reach by tapping the blackboard. */
+/* No router — the POC is a small set of views: the journey page, the full
+   report behind the blackboard, the assessment picker, and a live session. */
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -19,6 +21,7 @@ export default function App() {
   const [openNote, setOpenNote] = useState(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
   const [question, setQuestion] = useState(PRACTICE_QUESTIONS[0]);
+  const [runningId, setRunningId] = useState(null);
 
   const qIndex = useRef(0);
   const nextId = useRef(0);
@@ -29,22 +32,54 @@ export default function App() {
     setView('journey');
   };
 
-  // Restore the reader's place on the journey page when they come back.
+  // Every other view opens at the top; coming back to the journey restores
+  // the reader's place rather than dumping them at the masthead.
   useEffect(() => {
-    if (view === 'stats') window.scrollTo({ top: 0, behavior: 'auto' });
-    else window.scrollTo({ top: returnScroll.current, behavior: 'auto' });
+    if (view === 'journey') window.scrollTo({ top: returnScroll.current, behavior: 'auto' });
+    else window.scrollTo({ top: 0, behavior: 'auto' });
   }, [view]);
 
-  const openStats = () => {
-    returnScroll.current = window.scrollY;
-    setView('stats');
+  const leaveJourney = (next) => {
+    if (view === 'journey') returnScroll.current = window.scrollY;
+    setView(next);
   };
 
+  const openStats = () => leaveJourney('stats');
+
   const openPractice = () => {
+    setOpenNote(null);
+    leaveJourney('assessments');
+  };
+
+  /* The 45-second drill is still reachable from a skill note — it is the
+     quick version, where the assessment tracks are the real thing. */
+  const openQuickDrill = () => {
     setQuestion(PRACTICE_QUESTIONS[qIndex.current % PRACTICE_QUESTIONS.length]);
     qIndex.current += 1;
     setOpenNote(null);
     setPracticeOpen(true);
+  };
+
+  /* A finished session pins one entry per answer to the journal. */
+  const finishSession = (assessment, entries) => {
+    const total = entries.reduce((s2, e) => s2 + e.seconds, 0);
+    const id = `s-${nextId.current++}`;
+    setPracticeCount((c) => c + 1);
+    setFreshId(id);
+    setRecent((list) => [
+      {
+        id,
+        t: assessment.title.toUpperCase(),
+        q: `${entries.length} answers recorded`,
+        w: 'Today',
+        d: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(Math.floor(total % 60)).padStart(2, '0')}`,
+        rot: -1.2,
+        dx: 0,
+      },
+      ...list,
+    ].slice(0, 4));
+    setRunningId(null);
+    setView('journey');
   };
 
   const finishPractice = (q, elapsed) => {
@@ -65,7 +100,22 @@ export default function App() {
 
   return (
     <>
-      {view === 'journey' ? (
+      {view === 'assessments' && (
+        <AssessmentsPage
+          onBack={() => setView('journey')}
+          onPick={(id) => { setRunningId(id); setView('session'); }}
+        />
+      )}
+
+      {view === 'session' && (
+        <SessionPage
+          assessmentId={runningId}
+          onExit={() => { setRunningId(null); setView('assessments'); }}
+          onComplete={finishSession}
+        />
+      )}
+
+      {view === 'journey' && (
         <JourneyPage
           user={user}
           onSignOut={signOut}
@@ -76,19 +126,23 @@ export default function App() {
           onPractice={openPractice}
           onOpenStats={openStats}
         />
-      ) : (
+      )}
+
+      {view === 'stats' && (
         <StatsPage onBack={() => setView('journey')} onPractice={openPractice} />
       )}
 
-      <footer>
-        <span>voiceprint · Speak. Grow. Get Hired.</span>
-        <span>Sample data for design preview</span>
-      </footer>
+      {view !== 'session' && view !== 'assessments' && (
+        <footer>
+          <span>voiceprint · Speak. Grow. Get Hired.</span>
+          <span>Sample data for design preview</span>
+        </footer>
+      )}
 
       <NoteDetailDialog
         noteKey={openNote}
         onClose={() => setOpenNote(null)}
-        onPractice={openPractice}
+        onPractice={openQuickDrill}
       />
       <PracticeDialog
         open={practiceOpen}
