@@ -1,5 +1,12 @@
+import { useState } from 'react';
 import { Pencil, Pin, Tape, Underline } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
+import ChalkBarChart from '../components/charts/ChalkBarChart';
+import ChalkSparkGrid from '../components/charts/ChalkSparkGrid';
+import TelemetryBullets from '../components/charts/TelemetryBullets';
+import StarDropoff from '../components/charts/StarDropoff';
+import VerdictTiles from '../components/charts/VerdictTiles';
+import { BOARD, rankSkills, signed } from '../lib/viz';
 import {
   student,
   longitudinal,
@@ -7,55 +14,83 @@ import {
   telemetry,
   starStages,
   coachingPlan,
+  BENCHMARK,
 } from '../data/fixtures';
 
-/* ---------- Longitudinal profile, written up on the board (PRD §9) ---------- */
+/* One ranking, computed once, shared by every chart on the page so the
+   ordering and the colouring can never drift apart. */
+const ranked = rankSkills(longitudinal.skills, BENCHMARK);
+const best = ranked[0];
+const worst = ranked[ranked.length - 1];
+const biggestGain = ranked.reduce((a, b) => (a.delta >= b.delta ? a : b));
 
-function LongitudinalBoard() {
-  const { terms, skills } = longitudinal;
-  const rows = skills.map((s) => ({
-    ...s,
-    delta: s.scores[s.scores.length - 1] - s.scores[0],
-  }));
-  const weakest = rows.reduce((a, b) =>
-    (a.scores[a.scores.length - 1] <= b.scores[b.scores.length - 1] ? a : b));
-  const best = rows.reduce((a, b) => (a.delta >= b.delta ? a : b));
+/* ---------- The board: where you stand, and how you got here ---------- */
+
+function StandingBoard() {
+  const [showTable, setShowTable] = useState(false);
+  const aheadCount = ranked.filter((r) => r.ahead).length;
 
   return (
-    <section className="board-panel" aria-label="Communication profile over time">
+    <section className="board-panel" aria-label="Where you stand">
       <div className="frame static">
         <div className="board static">
           <div className="smudges" aria-hidden="true" />
 
-          <table className="ctable">
-            <caption className="chalk">
-              How each dimension has moved.
-              <span>EVERY ASSESSMENT SINCE YOU STARTED</span>
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">SKILL</th>
-                {terms.map((t) => <th key={t} scope="col">{t}</th>)}
-                <th scope="col">CHANGE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.name}>
-                  <th scope="row" className="chalk">{s.name}</th>
-                  {s.scores.map((v, i) => (
-                    <td key={i} className={i === s.scores.length - 1 ? 'now' : 'was'}>{v}</td>
-                  ))}
-                  <td className="delta">{s.delta > 0 ? `+${s.delta}` : s.delta}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="b-chart-head">
+            <h2 className="chalk">Where you stand today.</h2>
+            <p className="mute">
+              {aheadCount} of {ranked.length} dimensions {aheadCount === 1 ? 'is' : 'are'} at or
+              above the {BENCHMARK} target.
+            </p>
+          </div>
+
+          <div className="chalk-legend" aria-hidden="true">
+            <span><i style={{ background: BOARD.ahead }} />at or above target</span>
+            <span><i style={{ background: BOARD.behind }} />below target</span>
+            <span><i className="rule" style={{ background: BOARD.accent }} />target {BENCHMARK}</span>
+          </div>
+
+          <ChalkBarChart rows={ranked} benchmark={BENCHMARK} />
+
+          <div className="b-chart-head spaced">
+            <h2 className="chalk">How each one moved.</h2>
+            <p className="mute">Same five dimensions, every assessment since you started.</p>
+          </div>
+
+          <ChalkSparkGrid rows={ranked} terms={longitudinal.terms} benchmark={BENCHMARK} />
 
           <div className="board-foot">
-            <p>Biggest gain: <em>{best.name} +{best.delta}</em> across four assessments.</p>
-            <p>Still weakest: <em>{weakest.name}</em> — that is what the plan below targets.</p>
+            <p>Biggest gain: <em>{biggestGain.name} {signed(biggestGain.delta)}</em>.</p>
+            <button type="button" className="board-link" onClick={() => setShowTable((v) => !v)}
+              aria-expanded={showTable}>
+              {showTable ? 'Hide the numbers' : 'Show the numbers'}
+            </button>
           </div>
+
+          {/* The chart's table twin — every value as text, no colour needed. */}
+          {showTable && (
+            <table className="ctable">
+              <caption className="sr-cap">Every score, by assessment</caption>
+              <thead>
+                <tr>
+                  <th scope="col">SKILL</th>
+                  {longitudinal.terms.map((t) => <th key={t} scope="col">{t}</th>)}
+                  <th scope="col">CHANGE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranked.map((s) => (
+                  <tr key={s.name}>
+                    <th scope="row" className="chalk">{s.name}</th>
+                    {s.scores.map((v, i) => (
+                      <td key={i} className={i === s.scores.length - 1 ? 'now' : 'was'}>{v}</td>
+                    ))}
+                    <td className="delta">{signed(s.delta)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           <div className="dust" aria-hidden="true" />
         </div>
@@ -87,34 +122,25 @@ function EvidenceWall() {
               <Underline stroke="#C0483E" />
             </h2>
             <p className="lede">
-              Every number below is calculated from your last assessment — not an opinion.
+              Every number above is calculated from your last assessment — not an opinion.
               These are the measurements it came from.
             </p>
           </div>
 
           <div className="ev-grid">
             {evidence.map((e, i) => (
-              <article
-                key={e.key}
-                className="ev-note"
-                style={{ '--c': e.c, '--rot': `${e.rot}deg`, '--dy': `${e.dy}px` }}
-              >
+              <article key={e.key} className="ev-note"
+                style={{ '--c': e.c, '--rot': `${e.rot}deg`, '--dy': `${e.dy}px` }}>
                 {i % 2 ? <Tape rotate={i % 4 === 1 ? 3 : -4} /> : <Pin color="#C0483E" />}
 
                 <p className="e-title">{e.title}</p>
-                <p className="e-score">
-                  {e.score}
-                  <small>/100</small>
-                </p>
+                <p className="e-score">{e.score}<small>/100</small></p>
                 <Pencil pct={e.score} />
 
                 <p className="e-lab">EVIDENCE</p>
                 <ul>
                   {e.measures.map(([label, value]) => (
-                    <li key={label}>
-                      <span>{label}</span>
-                      <b>{value}</b>
-                    </li>
+                    <li key={label}><span>{label}</span><b>{value}</b></li>
                   ))}
                 </ul>
 
@@ -128,9 +154,11 @@ function EvidenceWall() {
   );
 }
 
-/* ---------- Raw speech metrics + STAR breakdown (PRD §6) ---------- */
+/* ---------- Measured signals, on ruled paper (PRD §6) ---------- */
 
 function MetricPads() {
+  const off = telemetry.filter((m) => m.value < m.band[0] || m.value > m.band[1]);
+
   return (
     <section className="paper-cols" aria-label="Speech metrics and answer structure">
       <div className="paper-cols-in">
@@ -138,33 +166,21 @@ function MetricPads() {
           <Tape rotate={2} />
           <p className="eyebrow">MEASURED FROM YOUR AUDIO</p>
           <h3>Speech telemetry</h3>
-
-          {telemetry.map((m) => (
-            <div className="m-row" key={m.name}>
-              <span className="m-name">{m.name}</span>
-              <span className="m-val">{m.value}</span>
-              <span className={`m-flag ${m.flag}`}>{m.label}</span>
-            </div>
-          ))}
-
-          <p className="foot-note">Fillers are the one metric moving the wrong way.</p>
+          <TelemetryBullets rows={telemetry} />
+          <p className="foot-note">
+            {off.length} of {telemetry.length} readings sit outside their target range:{' '}
+            {off.map((m) => m.name.toLowerCase()).join(', ')}.
+          </p>
         </div>
 
         <div className="pad b">
           <Tape rotate={-3} />
           <p className="eyebrow">HOW YOUR ANSWERS ARE BUILT</p>
-          <h3>STAR breakdown</h3>
-
-          {starStages.map(([name, pct]) => (
-            <div className="star-row" key={name}>
-              <span className="s-name">{name}</span>
-              <Pencil pct={pct} />
-              <b>{pct}%</b>
-            </div>
-          ))}
-
+          <h3>Where answers fall away</h3>
+          <StarDropoff stages={starStages} />
           <p className="foot-note">
-            You set up the story well. The Result is where answers keep trailing off.
+            You set the story up well. Coverage halves by the Result — the part an
+            interviewer remembers.
           </p>
         </div>
       </div>
@@ -185,11 +201,8 @@ function CoachingPlan({ onPractice }) {
 
         <div className="weeks">
           {coachingPlan.weeks.map((w) => (
-            <article
-              key={w.when}
-              className={`week${w.done ? ' done' : ''}`}
-              style={{ '--rot': `${w.rot}deg` }}
-            >
+            <article key={w.when} className={`week${w.done ? ' done' : ''}`}
+              style={{ '--rot': `${w.rot}deg` }}>
               <Pin color={w.pin} />
               <div>
                 <p className="w-when">{w.when}</p>
@@ -231,16 +244,17 @@ export default function StatsPage({ onBack, onPractice }) {
         <div className="stats-head">
           <p className="eyebrow">THE FULL REPORT</p>
           <h1>
-            What the board is actually measuring.
+            Strongest at {best.name.toLowerCase()}. Weakest at {worst.name.toLowerCase()}.
             <Underline stroke="#C0483E" />
           </h1>
           <p className="lede">
-            Every dimension, the evidence behind it, and what you should practise next.
-            Pulled from {student.practices} assessments.
+            Pulled from {student.practices} assessments. Everything below is the working
+            behind those two sentences.
           </p>
         </div>
 
-        <LongitudinalBoard />
+        <VerdictTiles best={best} worst={worst} benchmark={BENCHMARK} />
+        <StandingBoard />
         <EvidenceWall />
         <MetricPads />
         <CoachingPlan onPractice={onPractice} />

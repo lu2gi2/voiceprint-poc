@@ -145,15 +145,21 @@ export const evidence = [
   },
 ];
 
-/* PRD §6 — raw speech metrics behind the scores. */
+/* The benchmark every dimension is read against — the "interview ready" bar. */
+export const BENCHMARK = 75;
+
+/* PRD §6 — raw speech metrics behind the scores.
+   `band` is the healthy range and `scale` the axis, so each row can be drawn
+   as a bullet chart: you see the target zone and where the reading actually
+   landed, instead of a bare number you have to already know how to judge. */
 export const telemetry = [
-  { name: 'Speaking rate', value: '143 wpm', flag: 'ok', label: 'IN RANGE' },
-  { name: 'Filler words', value: '2.4 / min', flag: 'work', label: 'NEEDS WORK' },
-  { name: 'Pause frequency', value: '12 / min', flag: 'ok', label: 'CADENCED' },
-  { name: 'Avg pause length', value: '1.4 s', flag: 'ok', label: 'IN RANGE' },
-  { name: 'Repeated words', value: '4 / answer', flag: 'watch', label: 'WATCH' },
-  { name: 'Sentence completion', value: '86%', flag: 'watch', label: 'WATCH' },
-  { name: 'Voice consistency', value: '82%', flag: 'ok', label: 'STEADY' },
+  { name: 'Speaking rate',       value: 143, unit: 'wpm',      band: [120, 160], scale: [80, 200] },
+  { name: 'Filler words',        value: 2.4, unit: '/ min',    band: [0, 1.5],   scale: [0, 5] },
+  { name: 'Pause frequency',     value: 12,  unit: '/ min',    band: [8, 14],    scale: [0, 24] },
+  { name: 'Avg pause length',    value: 1.4, unit: 's',        band: [0.8, 2.0], scale: [0, 3] },
+  { name: 'Repeated words',      value: 4,   unit: '/ answer', band: [0, 2],     scale: [0, 8] },
+  { name: 'Sentence completion', value: 86,  unit: '%',        band: [90, 100],  scale: [50, 100] },
+  { name: 'Voice consistency',   value: 82,  unit: '%',        band: [75, 100],  scale: [50, 100] },
 ];
 
 export const starStages = [
