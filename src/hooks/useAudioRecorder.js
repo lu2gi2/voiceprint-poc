@@ -101,47 +101,72 @@ export default function useAudioRecorder() {
 
     streamRef.current = stream;
 
-    // Live signal for the orb. Created after the click, so the autoplay
-    // policy is satisfied and the context starts running rather than suspended.
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    ctxRef.current = ctx;
-    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.75;
-    ctx.createMediaStreamSource(stream).connect(analyser);
-    // Deliberately not connected to ctx.destination — piping the mic to the
-    // speakers is a feedback loop.
-    analyserRef.current = analyser;
+    // Past this line the mic is live, so everything that can throw sits inside
+    // the try. An audio graph or a recorder that fails to construct would
+    // otherwise leave the stream open, the status stuck on "requesting", and
+    // the browser's recording indicator lit with no way for the student to
+    // clear it.
+    let recorder = null;
+    try {
+      // Live signal for the orb. Created after the click, so the autoplay
+      // policy is satisfied and the context starts running rather than suspended.
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      ctxRef.current = ctx;
+      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.75;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      // Deliberately not connected to ctx.destination — piping the mic to the
+      // speakers is a feedback loop.
+      analyserRef.current = analyser;
 
-    const mime = pickMime();
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    recorderRef.current = recorder;
-    chunksRef.current = [];
+      const mime = pickMime();
+      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
 
-    recorder.ondataavailable = (e) => {
-      if (e.data?.size) chunksRef.current.push(e.data);
-    };
-    recorder.onstop = () => {
-      const seconds = Math.max(0, (Date.now() - startedAt.current) / 1000);
-      const blob = new Blob(chunksRef.current, { type: mime || 'audio/webm' });
-      if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
-      const url = URL.createObjectURL(blob);
-      clipUrlRef.current = url;
-      setClip({ url, blob, mime: mime || 'audio/webm', seconds });
-      setDuration(seconds);
-      setStatus('stopped');
+      recorder.ondataavailable = (e) => {
+        if (e.data?.size) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const seconds = Math.max(0, (Date.now() - startedAt.current) / 1000);
+        // The type the browser actually recorded in, not the guess made before
+        // construction: when no candidate was supported the recorder falls back
+        // to its own default, which Safari answers with mp4. Labelling that
+        // blob webm would be a lie the eventual upload would repeat in a
+        // Content-Type header.
+        const type = recorder.mimeType || mime || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type });
+        if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        clipUrlRef.current = url;
+        setClip({ url, blob, mime: type, seconds });
+        setDuration(seconds);
+        setStatus('stopped');
+        releaseStream();
+      };
+      recorder.onerror = (e) => {
+        setStatus('error');
+        setError(classify(e.error));
+        releaseStream();
+      };
+
+      startedAt.current = Date.now();
+      setDuration(0);
+      // The last statement here that can throw, so a failure never leaves a
+      // half-started recorder behind.
+      recorder.start(250); // timeslice, so a long answer is not one giant chunk
+    } catch {
+      try { recorder?.stop(); } catch { /* never started */ }
       releaseStream();
-    };
-    recorder.onerror = (e) => {
       setStatus('error');
-      setError(classify(e.error));
-      releaseStream();
-    };
+      // Permission was already granted, so a throw here is our side failing
+      // rather than the student's — don't hand them a raw DOMException.
+      setError({ kind: 'engine', message: 'The recorder could not start on this device. Reload the page and try again.' });
+      return;
+    }
 
-    startedAt.current = Date.now();
-    setDuration(0);
-    recorder.start(250); // timeslice, so a long answer is not one giant chunk
     setStatus('recording');
 
     tickRef.current = setInterval(() => {

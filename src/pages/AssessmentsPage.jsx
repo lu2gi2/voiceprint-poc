@@ -61,7 +61,7 @@ export default function AssessmentsPage({ onBack, onPick }) {
         <span className="who">{ready.length} tracks ready</span>
       </header>
 
-      <main>
+      <main id="main">
         <div className="stats-head">
           <p className="eyebrow">PRACTICE</p>
           <h1>

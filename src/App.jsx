@@ -129,7 +129,11 @@ export default function App() {
       )}
 
       {view === 'stats' && (
-        <StatsPage onBack={() => setView('journey')} onPractice={openPractice} />
+        <StatsPage
+          onBack={() => setView('journey')}
+          onPractice={openPractice}
+          practiceCount={practiceCount}
+        />
       )}
 
       {view !== 'session' && view !== 'assessments' && (

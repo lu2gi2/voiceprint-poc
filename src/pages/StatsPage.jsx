@@ -228,7 +228,7 @@ function CoachingPlan({ onPractice }) {
 
 /* ---------- Page ---------- */
 
-export default function StatsPage({ onBack, onPractice }) {
+export default function StatsPage({ onBack, onPractice, practiceCount }) {
   const scrolled = useScrolled();
 
   return (
@@ -240,7 +240,7 @@ export default function StatsPage({ onBack, onPractice }) {
         <span className="who">{student.name} · {student.year}</span>
       </header>
 
-      <main>
+      <main id="main">
         <div className="stats-head">
           <p className="eyebrow">THE FULL REPORT</p>
           <h1>
@@ -248,7 +248,7 @@ export default function StatsPage({ onBack, onPractice }) {
             <Underline stroke="#C0483E" />
           </h1>
           <p className="lede">
-            Pulled from {student.practices} assessments. Everything below is the working
+            Pulled from {practiceCount} assessments. Everything below is the working
             behind those two sentences.
           </p>
         </div>
