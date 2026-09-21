@@ -568,3 +568,111 @@ svg .f-drop.worst{font-size:25px;font-weight:700}
   .b-flag{order:2}
   .v-score{font-size:54px}
 }
+
+/* ==========================================================================
+   AUTH — the board asks, you write on it
+   Chalk on #18231E: 14.0:1 for values, 9.3:1 for labels. The chart red is
+   only 4.2:1, which fails body text, so errors get their own lighter chalk.
+   ========================================================================== */
+
+:root{ --chalk-err:#DC7A70; }  /* 5.44:1 on the board */
+
+.auth{min-height:100vh;background:var(--paper);display:flex;flex-direction:column}
+.auth-top{height:var(--nav-h);display:flex;align-items:center;padding:0 clamp(18px,4vw,56px);flex:none}
+.auth-top .brand{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.auth-main{flex:1;display:flex;align-items:center;justify-content:center;
+  padding:clamp(8px,2vh,28px) clamp(12px,3vw,44px) clamp(18px,3vh,36px)}
+.auth-frame{width:min(760px,100%);height:auto;padding:16px 16px 34px}
+.auth-board{height:auto;padding:clamp(28px,4.4vw,52px) clamp(24px,4.4vw,56px) clamp(30px,4vw,48px)}
+.auth-foot{padding:0 clamp(18px,4vw,56px) 26px;font-size:12px;color:var(--muted);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;flex:none}
+
+.auth-form{position:relative;z-index:2}
+.auth-eyebrow{font-size:11px;font-weight:600;letter-spacing:.18em;color:var(--chalk-mute)}
+.auth-title{font-family:var(--hand);font-weight:600;font-size:clamp(36px,5.4vw,60px);line-height:1;margin:8px 0 6px}
+.auth-sub{font-family:var(--hand);font-size:clamp(19px,2.1vw,25px);color:var(--chalk-mute);max-width:44ch}
+/* A 600px-wide text input is miserable to read back; cap the writing line
+   and let the rest of the board stay empty. */
+.auth-fields{display:grid;gap:clamp(18px,2.6vh,28px);max-width:460px;
+  margin:clamp(26px,4vh,40px) 0 clamp(22px,3vh,32px)}
+
+/* --- a field --- */
+.cfield label{display:block;font-family:var(--hand);font-size:clamp(20px,2vw,25px);
+  color:var(--chalk-mute);line-height:1;margin-bottom:4px;transition:color .2s}
+.cfield:focus-within label{color:var(--chalk)}
+.cfield.has-err label{color:var(--chalk-err)}
+.cfield-line{position:relative;display:flex;align-items:center;gap:12px}
+
+.cfield input{flex:1;min-width:0;appearance:none;background:transparent;border:0;outline:0;
+  font-family:var(--sans);font-size:17px;font-weight:500;letter-spacing:.01em;
+  color:var(--chalk);caret-color:var(--chalk);padding:6px 2px 10px}
+.cfield input::placeholder{color:var(--chalk-mute);opacity:.5;font-weight:400}
+
+/* Chrome paints autofilled inputs with an opaque near-white block and its own
+   text colour — on a blackboard that is both a white slab over the chalk and,
+   in dark mode, dark text on a dark field. There is no property to turn the
+   fill off, so defer it past any real session and force the text colour. */
+.cfield input:-webkit-autofill,
+.cfield input:-webkit-autofill:hover,
+.cfield input:-webkit-autofill:focus{
+  -webkit-text-fill-color:var(--chalk);
+  caret-color:var(--chalk);
+  transition:background-color 600000s 0s,color 600000s 0s}
+.cfield input:autofill{-webkit-text-fill-color:var(--chalk)}
+
+.cfield-rule{position:absolute;left:0;right:0;bottom:-2px;width:100%;height:12px;
+  overflow:visible;pointer-events:none}
+.cfield-rule path{stroke:var(--chalk-mute);transition:stroke .2s,opacity .2s}
+.cfield:focus-within .cfield-rule path{stroke:var(--chalk)}
+.cfield.has-err .cfield-rule path{stroke:var(--chalk-err)}
+
+.cfield-peek{flex:none;appearance:none;border:0;background:transparent;
+  font-family:var(--hand);font-size:19px;color:var(--chalk-mute);padding:4px 2px;
+  border-bottom:1.5px dotted transparent;transition:color .2s,border-color .2s}
+.cfield-peek:hover,.cfield-peek:focus-visible{color:var(--chalk);border-bottom-color:var(--chalk)}
+
+.cfield-err{display:flex;align-items:baseline;gap:7px;margin-top:9px;
+  font-family:var(--hand);font-size:clamp(18px,1.9vw,22px);line-height:1.15;
+  color:var(--chalk-err);transform:rotate(-.5deg)}
+.cfield-err span{font-family:var(--sans);font-size:13px;font-weight:700}
+
+/* --- actions --- */
+.auth-actions{display:flex;align-items:center;gap:clamp(16px,3vw,30px);flex-wrap:wrap}
+.chalk-btn{appearance:none;border:0;background:var(--chalk);color:#18231E;
+  font:700 12px var(--sans);letter-spacing:.14em;padding:15px 26px;border-radius:2px;
+  display:inline-flex;align-items:center;gap:10px;
+  box-shadow:3px 4px 0 rgba(0,0,0,.35);transition:transform .18s,box-shadow .18s}
+.chalk-btn i{font-style:normal;transition:transform .2s}
+.chalk-btn:hover{transform:translate(-2px,-2px);box-shadow:5px 6px 0 rgba(0,0,0,.4)}
+.chalk-btn:hover i{transform:translateX(4px)}
+.chalk-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.4)}
+.auth-swap{appearance:none;border:0;background:transparent;font-family:var(--hand);
+  font-size:clamp(19px,2vw,24px);color:var(--chalk-mute);padding:2px 0;
+  border-bottom:1.5px dotted rgba(241,239,227,.4);transition:color .2s,border-color .2s}
+.auth-swap:hover,.auth-swap:focus-visible{color:var(--chalk);border-bottom-color:var(--chalk)}
+
+.auth-demo{margin-top:clamp(20px,3vh,30px);padding-top:14px;
+  border-top:2px dashed rgba(241,239,227,.14);
+  font-family:var(--hand2);font-size:14px;line-height:1.35;color:var(--chalk-mute);opacity:.85}
+
+/* focus ring has to read on chalkboard as well as paper */
+.auth :focus-visible{outline:3px solid var(--chalk);outline-offset:3px}
+.cfield input:focus-visible{outline:0}
+
+/* sign out sits beside the avatar */
+.signout{appearance:none;border:0;background:transparent;font:600 11px var(--sans);
+  letter-spacing:.13em;color:var(--muted);padding:8px 2px;position:relative;transition:color .2s}
+.signout::after{content:"";position:absolute;left:0;right:0;bottom:4px;height:1.5px;background:currentColor;
+  transform:scaleX(0);transform-origin:left;transition:transform .25s}
+.signout:hover{color:var(--ink)}
+.signout:hover::after{transform:scaleX(1)}
+
+@media (max-width:620px){
+  .auth-main{align-items:flex-start;padding-top:8px}
+  .auth-frame{padding:10px 10px 30px}
+  .auth-board{padding:26px 20px 30px}
+  .auth-actions{gap:16px}
+  .chalk-btn{width:100%;justify-content:center}
+  .auth-swap{width:100%;text-align:center}
+  .signout{display:none}
+}

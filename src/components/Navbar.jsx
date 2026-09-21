@@ -15,7 +15,8 @@ function Logo() {
   );
 }
 
-export default function Navbar({ onGoBoard, onGoPractice, onGoReports }) {
+export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoReports }) {
+  const name = user?.name || student.name;
   const scrolled = useScrolled();
   const [popOpen, setPopOpen] = useState(false);
   const [unread, setUnread] = useState(true);
@@ -103,8 +104,10 @@ export default function Navbar({ onGoBoard, onGoPractice, onGoReports }) {
           </div>
         </div>
 
-        <div className="avatar" role="img" aria-label={`${student.name}'s profile`}>
-          {student.initial}
+        <button type="button" className="signout" onClick={onSignOut}>SIGN OUT</button>
+
+        <div className="avatar" role="img" aria-label={`${name}'s profile`}>
+          {name.charAt(0).toUpperCase()}
         </div>
       </div>
     </header>

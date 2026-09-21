@@ -10,6 +10,8 @@ import useChalkScroll from '../hooks/useChalkScroll';
 import { useReducedMotion } from '../hooks/useMediaQuery';
 
 export default function JourneyPage({
+  user,
+  onSignOut,
   practiceCount,
   recent,
   freshId,
@@ -34,13 +36,15 @@ export default function JourneyPage({
   return (
     <>
       <Navbar
+        user={user}
+        onSignOut={onSignOut}
         onGoBoard={scrollToBoard}
         onGoPractice={() => scrollTo(coachRef)}
         onGoReports={() => scrollTo(wallRef)}
       />
 
       <main id="main">
-        <StudentIntro practiceCount={practiceCount} />
+        <StudentIntro user={user} practiceCount={practiceCount} />
 
         <Blackboard
           ref={trackRef}

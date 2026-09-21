@@ -1,12 +1,14 @@
 import { Pencil, Pin, Tape } from './paper';
 import { student } from '../data/fixtures';
 
-export default function StudentIntro({ practiceCount }) {
+export default function StudentIntro({ user, practiceCount }) {
+  const name = user?.name || student.name;
+
   return (
     <section className="intro" id="top" aria-label="Welcome">
       <div className="hi">
         <p className="eyebrow">GOOD TO SEE YOU</p>
-        <h1>Hi, {student.name}.</h1>
+        <h1>Hi, {name}.</h1>
         <p className="meta">
           {student.year} · {student.branch} · {practiceCount} practices
         </p>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import AuthPage from './pages/AuthPage';
 import JourneyPage from './pages/JourneyPage';
 import StatsPage from './pages/StatsPage';
 import NoteDetailDialog from './components/NoteDetailDialog';
@@ -9,6 +10,7 @@ import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
    full report you reach by tapping the blackboard. */
 
 export default function App() {
+  const [user, setUser] = useState(null);
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
   const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));
@@ -21,6 +23,11 @@ export default function App() {
   const qIndex = useRef(0);
   const nextId = useRef(0);
   const returnScroll = useRef(0);
+
+  const signOut = () => {
+    setUser(null);
+    setView('journey');
+  };
 
   // Restore the reader's place on the journey page when they come back.
   useEffect(() => {
@@ -52,10 +59,16 @@ export default function App() {
     );
   };
 
+  // Nothing is gated for real — there is no backend. The auth page is the
+  // front door of the demo, not a security boundary.
+  if (!user) return <AuthPage onAuthed={setUser} />;
+
   return (
     <>
       {view === 'journey' ? (
         <JourneyPage
+          user={user}
+          onSignOut={signOut}
           practiceCount={practiceCount}
           recent={recent}
           freshId={freshId}
