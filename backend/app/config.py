@@ -66,9 +66,14 @@ class Settings(BaseSettings):
     # generation (redacted resume text, never audio). None of it is required
     # for the app to start; a session just cannot generate resume-driven
     # questions without it.
+    #
+    # Routed through OpenRouter rather than DeepSeek's own API — same model,
+    # OpenRouter is OpenAI-API-compatible so only the base URL and the
+    # provider-prefixed model name change; deepseek.py's request shape is
+    # untouched. DEEPSEEK_API_KEY is now an OpenRouter key, not a DeepSeek one.
     deepseek_api_key: str | None = None
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://openrouter.ai/api/v1"
+    deepseek_model: str = "deepseek/deepseek-chat"
 
 
 @lru_cache
