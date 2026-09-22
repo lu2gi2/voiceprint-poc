@@ -1,6 +1,9 @@
 /* ---------- Tokens ---------- */
 :root{
-  --paper:#F3EFE5; --paper-2:#EAE4D3; --ink:#1B1A17; --muted:#625E53; --rule:rgba(27,26,23,.16);
+  /* Page surface: warm sand rather than off-white. --muted is a step darker
+     than the original ink to hold 4.9:1 against the browner wall — the old
+     #625E53 dropped to 4.40 once the background warmed. */
+  --paper:#E3D5B8; --paper-2:#D8C7A4; --ink:#1B1A17; --muted:#534F45; --rule:rgba(27,26,23,.2);
   --board:#18231E; --board-2:#202D27; --chalk:#F1EFE3; --chalk-mute:#BFC6BE;
   --wood:#80512D; --wood-hi:#A96F3C;
   --obj-ink:#1B1A17; --obj-mute:#5B574C; --sheet:#FBF8EE;
@@ -20,10 +23,6 @@
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){ --paper:#171510; --paper-2:#1F1C16; --ink:#EEE9DB; --muted:#A8A292; --rule:rgba(238,233,219,.18); }
-}
-:root[data-theme="dark"]{ --paper:#171510; --paper-2:#1F1C16; --ink:#EEE9DB; --muted:#A8A292; --rule:rgba(238,233,219,.18); }
 
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
