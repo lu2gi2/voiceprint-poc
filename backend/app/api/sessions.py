@@ -244,9 +244,20 @@ def complete_session(
         raise HTTPException(404, "session not found")
     session.status = "complete"
     session.completed_at = datetime.now(timezone.utc)
+
+    # Only resume-driven sessions get a report (generate_session_report is a
+    # no-op for scripted tracks, no Resume row). Setting report_status here,
+    # synchronously, before the response returns, closes a real race: without
+    # this, report_status stays None until the background task actually
+    # starts, and a poll landing in that gap sees "not processing" with the
+    # report not yet generated - reproduced and confirmed against a real
+    # session (#15).
+    resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+    if resume is not None and resume.status == "ready":
+        session.report_status = "processing"
+
     db.commit()
     db.refresh(session)
-    # No-op for scripted tracks (no Resume row) - see generate_session_report.
     background.add_task(generate_session_report, session_id)
     return session
 
