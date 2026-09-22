@@ -86,10 +86,12 @@ class Resume(Base):
 
     The original file is never persisted — it is parsed on upload and
     discarded (see the API layer); only the extracted text sticks around,
-    since that is what the question-generation call needs later. status is
-    'rejected' the moment either local check (extraction, heuristic) fails,
-    or 'validated' once both pass — 'validated' does not yet mean a question
-    list exists, that is the DeepSeek call this table is staged for.
+    since that is what the question-generation call needs. status is
+    'rejected' the moment either local check (extraction, heuristic) or the
+    DeepSeek content check fails, 'processing' once local checks pass and
+    question generation is running, 'ready' once question 1 exists (not all
+    questions — they are generated one at a time, chained off each answer),
+    or 'failed' if question generation itself errored.
     """
 
     __tablename__ = "resumes"
@@ -98,7 +100,7 @@ class Resume(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), unique=True, index=True)
 
     original_filename: Mapped[str] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(24), default="rejected")  # rejected | validated
+    status: Mapped[str] = mapped_column(String(24), default="rejected")  # rejected | processing | ready | failed
     reject_reason: Mapped[str | None] = mapped_column(Text, default=None)
 
     extracted_text: Mapped[str | None] = mapped_column(Text, default=None)
@@ -139,6 +141,11 @@ class Answer(Base):
     words: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
     measurements: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     scores: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
+
+    # Resume-driven track only: a correction/note the next-question call made
+    # about this specific answer. Never shown during the interview - only in
+    # the final report, per the plan on issue #4.
+    llm_note: Mapped[str | None] = mapped_column(Text, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
