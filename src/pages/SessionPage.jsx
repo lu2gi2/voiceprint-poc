@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import VoiceOrb from '../components/VoiceOrb';
+import SessionResults from '../components/SessionResults';
 import useAudioRecorder from '../hooks/useAudioRecorder';
 import { byId } from '../data/assessments';
+import { checkHealth, createSession, uploadAnswer, completeSession, pollSummary, pollAnswer, getSession } from '../lib/api';
 
 const fmt = (s) => {
   const n = Math.max(0, Math.floor(s));
@@ -15,18 +17,75 @@ const fmt = (s) => {
  * than cutting you off — going long is the thing being measured, so the
  * recording has to be allowed to run long enough to show it.
  */
-export default function SessionPage({ assessmentId, onExit, onComplete }) {
+export default function SessionPage({ assessmentId, user, onExit, onDone, onComplete }) {
   const assessment = byId(assessmentId);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState([]);
+  const [phase, setPhase] = useState('answering'); // answering | results
+  const [summary, setSummary] = useState(null);
+  const [offline, setOffline] = useState(false);
+  const [heard, setHeard] = useState(null);   // { status, transcript } for this question
+  const [transcripts, setTranscripts] = useState([]);
   const rec = useAudioRecorder();
+
+  // The backend is optional. Open a session if it is there; if not, the round
+  // still runs, it just comes back unscored.
+  const remoteId = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const health = await checkHealth();
+      if (cancelled) return;
+      if (!health) { setOffline(true); return; }
+      try {
+        const s = await createSession({
+          student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
+          assessment,
+        });
+        if (!cancelled) remoteId.current = s.id;
+      } catch {
+        if (!cancelled) setOffline(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [assessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const q = assessment?.questions[index];
   const isLast = index === (assessment?.questions.length ?? 0) - 1;
   const over = q ? rec.duration - q.target : 0;
 
   // Fresh recorder state for each question.
-  useEffect(() => { rec.reset(); }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { rec.reset(); setHeard(null); }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The moment an answer is captured, send it and start listening for the
+  // transcript. Uploading here rather than on "next" means the words are on
+  // screen while the student is still looking at the question they answered.
+  const sentFor = useRef(null);
+  useEffect(() => {
+    const clip = rec.clip;
+    if (rec.status !== 'stopped' || !clip || !remoteId.current) return;
+    if (sentFor.current === clip.url) return;   // one upload per recording
+    sentFor.current = clip.url;
+
+    let cancelled = false;
+    setHeard({ status: 'uploading', transcript: null });
+    uploadAnswer(remoteId.current, {
+      index, prompt: q.prompt, target: q.target, blob: clip.blob, mime: clip.mime,
+    })
+      .then(({ answer_id }) => {
+        if (cancelled) return null;
+        setHeard({ status: 'transcribing', transcript: null });
+        return pollAnswer(answer_id);
+      })
+      .then((a) => {
+        if (cancelled || !a) return;
+        if (a.status === 'failed') { setHeard({ status: 'failed', transcript: null }); return; }
+        setHeard({ status: 'ready', transcript: a.transcript });
+        setTranscripts((t) => [...t, { index, prompt: q.prompt, text: a.transcript }]);
+      })
+      .catch(() => { if (!cancelled) setOffline(true); });
+    return () => { cancelled = true; };
+  }, [rec.status, rec.clip, index]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Releases the mic if you leave mid-answer.
   useEffect(() => () => rec.reset(), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -42,8 +101,23 @@ export default function SessionPage({ assessmentId, onExit, onComplete }) {
     };
     const all = [...answers, entry];
     setAnswers(all);
-    if (isLast) onComplete(assessment, all);
-    else setIndex((i) => i + 1);
+
+    if (!isLast) { setIndex((i) => i + 1); return; }
+
+    setPhase('results');
+    onComplete(assessment, all);           // pin it to the journal straight away
+    if (!remoteId.current) { setOffline(true); return; }
+    completeSession(remoteId.current).catch(() => {});
+    pollSummary(remoteId.current, { onTick: setSummary }).then(async (final) => {
+      setSummary(final);
+      // Pick up every transcript, including any the student clicked past.
+      try {
+        const full = await getSession(remoteId.current);
+        setTranscripts(full.answers
+          .filter((a) => a.transcript)
+          .map((a) => ({ index: a.question_index, prompt: a.prompt, text: a.transcript })));
+      } catch { /* the scores are the important part */ }
+    });
   };
 
   const progress = useMemo(
@@ -74,6 +148,10 @@ export default function SessionPage({ assessmentId, onExit, onComplete }) {
           <div className="board session-board">
             <div className="smudges" aria-hidden="true" />
 
+            {phase === 'results' ? (
+              <SessionResults summary={summary} transcripts={transcripts} offline={offline} onDone={onDone} />
+            ) : (
+            <>
             <div className="session-q">
               <p className="session-kind">{assessment.kind}</p>
               <h1 className="session-prompt chalk">“{q.prompt}”</h1>
@@ -127,6 +205,24 @@ export default function SessionPage({ assessmentId, onExit, onComplete }) {
                         : '. Inside the target.'}
                     </p>
                     <audio className="sr-audio" src={rec.clip.url} controls preload="metadata" />
+
+                    {heard && (
+                      <div className="heard">
+                        <p className="heard-lab">
+                          {heard.status === 'ready' ? 'WHAT WE HEARD'
+                            : heard.status === 'failed' ? 'COULD NOT TRANSCRIBE'
+                            : heard.status === 'transcribing' ? 'TRANSCRIBING…'
+                            : 'SENDING…'}
+                        </p>
+                        {heard.status === 'ready' && <p className="heard-text">“{heard.transcript}”</p>}
+                        {heard.status === 'failed' && (
+                          <p className="heard-text err">The recording could not be transcribed.</p>
+                        )}
+                        {(heard.status === 'uploading' || heard.status === 'transcribing') && (
+                          <p className="heard-text muted">Listening back to your answer…</p>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -159,8 +255,12 @@ export default function SessionPage({ assessmentId, onExit, onComplete }) {
             </div>
 
             <p className="session-note">
-              Recorded in your browser only. Nothing is uploaded — the POC has no backend yet.
+              {offline
+                ? 'Recorded in your browser only — the analysis service is not running, so answers will not be scored.'
+                : 'Answers are sent to the local analysis service for transcription and scoring.'}
             </p>
+            </>
+            )}
 
             <div className="dust" aria-hidden="true" />
           </div>

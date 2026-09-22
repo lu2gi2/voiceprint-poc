@@ -1,0 +1,15 @@
+# API
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic-settings==2.7.1
+
+# persistence
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+
+# speech
+faster-whisper==1.1.1
+librosa==0.10.2.post1
+soundfile==0.12.1
+numpy==1.26.4

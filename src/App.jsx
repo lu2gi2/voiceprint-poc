@@ -78,8 +78,8 @@ export default function App() {
       },
       ...list,
     ].slice(0, 4));
-    setRunningId(null);
-    setView('journey');
+    // Deliberately does not navigate: the session stays mounted so its results
+    // screen can show what the backend measured. Leaving is the student's call.
   };
 
   const finishPractice = (q, elapsed) => {
@@ -110,7 +110,9 @@ export default function App() {
       {view === 'session' && (
         <SessionPage
           assessmentId={runningId}
+          user={user}
           onExit={() => { setRunningId(null); setView('assessments'); }}
+          onDone={() => { setRunningId(null); setView('journey'); }}
           onComplete={finishSession}
         />
       )}

@@ -107,9 +107,11 @@ export const evidence = [
     key: 'fluency', title: 'FLUENCY', score: 78, c: 'var(--y)', rot: -2.2, dy: 0,
     measures: [
       ['Speaking rate', '143 wpm'],
-      ['Filler words', '12 total'],
+      ['Filler words', '2.4 / min'],
       ['Long pauses', '6'],
-      ['Repeated phrases', '4'],
+      ['Avg pause length', '1.4 s'],
+      ['Restarted words', '4'],
+      ['Voice steadiness', '82%'],
     ],
     fix: 'Swap “uh” and “um” for a deliberate silent beat.',
   },
@@ -126,10 +128,10 @@ export const evidence = [
   {
     key: 'structure', title: 'STRUCTURE', score: 71, c: 'var(--g)', rot: -1.4, dy: -8,
     measures: [
-      ['Situation covered', '100%'],
-      ['Task covered', '92%'],
-      ['Action covered', '75%'],
-      ['Result quantified', '58%'],
+      ['Answers following STAR', '78%'],
+      ['Clear opening line', '82%'],
+      ['Signposted transitions', '1.4 / answer'],
+      ['Story order kept', '91%'],
     ],
     fix: 'Land a number in the Result — time, percent, or money saved.',
   },
@@ -147,20 +149,6 @@ export const evidence = [
 
 /* The benchmark every dimension is read against — the "interview ready" bar. */
 export const BENCHMARK = 75;
-
-/* PRD §6 — raw speech metrics behind the scores.
-   `band` is the healthy range and `scale` the axis, so each row can be drawn
-   as a bullet chart: you see the target zone and where the reading actually
-   landed, instead of a bare number you have to already know how to judge. */
-export const telemetry = [
-  { name: 'Speaking rate',       value: 143, unit: 'wpm',      band: [120, 160], scale: [80, 200] },
-  { name: 'Filler words',        value: 2.4, unit: '/ min',    band: [0, 1.5],   scale: [0, 5] },
-  { name: 'Pause frequency',     value: 12,  unit: '/ min',    band: [8, 14],    scale: [0, 24] },
-  { name: 'Avg pause length',    value: 1.4, unit: 's',        band: [0.8, 2.0], scale: [0, 3] },
-  { name: 'Repeated words',      value: 4,   unit: '/ answer', band: [0, 2],     scale: [0, 8] },
-  { name: 'Sentence completion', value: 86,  unit: '%',        band: [90, 100],  scale: [50, 100] },
-  { name: 'Voice consistency',   value: 82,  unit: '%',        band: [75, 100],  scale: [50, 100] },
-];
 
 export const starStages = [
   ['Situation', 100],
