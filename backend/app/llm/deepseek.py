@@ -13,10 +13,16 @@ import logging
 import httpx
 
 from ..config import get_settings
+from .tracks import get_track
 
 log = logging.getLogger(__name__)
 
-FIRST_QUESTION_PROMPT = """You are opening a mock technical interview from a candidate's resume.
+# Shared prompt shape across every track — see tracks.py for what actually
+# varies per track (opening focus, what "going deeper" means, what the
+# report judges). One pipeline, many track configs, not one prompt set
+# copy-pasted per track.
+
+FIRST_QUESTION_TEMPLATE = """You are opening a mock {label} from a candidate's resume.
 
 First, judge whether the given text is genuinely a resume/CV for a specific
 person - not a job posting, cover letter, template, or unrelated document.
@@ -26,11 +32,9 @@ experience) but describes a role, not a person's history.
 If it is not a real resume, respond with valid=false and a short, specific
 reason, and leave question/target_seconds null.
 
-If it is a real resume, write the first question. It must reference
-something concrete and specific from the resume - a named project, a
-specific technology, a specific role - not a generic prompt ("tell me about
-a project") that could apply to any resume. Give it a target_seconds between
-60 and 150, appropriate to how much depth it calls for.
+If it is a real resume, write the first question. {opening_instructions}
+Give it a target_seconds between 60 and 150, appropriate to how much depth
+it calls for.
 
 Respond with strict JSON only, no other text, matching exactly this shape:
 {{"valid": true, "reason": null, "question": "...", "target_seconds": 90}}
@@ -38,29 +42,17 @@ or, if not a real resume:
 {{"valid": false, "reason": "...", "question": null, "target_seconds": null}}
 """
 
-NEXT_QUESTION_PROMPT = """You are conducting a mock technical interview from a candidate's resume,
-one question at a time. You will be given the resume, then the questions
-asked so far and the candidate's actual answers.
+NEXT_QUESTION_TEMPLATE = """You are conducting a mock {label} from a candidate's resume, one question
+at a time. You will be given the resume, then the questions asked so far and
+the candidate's actual answers.{engagement_note}
 
 First, in "correction", write a short note (one or two sentences) only if
-something in the candidate's most recent answer was technically incorrect,
-vague to the point of not really answering, or worth flagging - otherwise
-null. This is never shown to the candidate during the interview, only used
-in the final report, so be direct and specific rather than encouraging.
+something in the candidate's most recent answer was {correction_criteria} -
+otherwise null. This is never shown to the candidate during the interview,
+only used in the final report, so be direct and specific rather than
+encouraging.
 
-Then decide whether to go deeper on the current topic or move to a new one.
-Default to going deeper - a real interviewer spends several questions on
-the same project before moving on, not one question per resume line. Only
-move to a different, not-yet-covered part of the resume once the current
-topic has had at least two substantive exchanges, or the candidate's last
-answer was a non-answer/evasive dodge that leaves nothing to dig into.
-
-When going deeper, make the question a genuine escalation, not a rephrase -
-ask about a trade-off they made, a failure mode or edge case, what they
-would change if a requirement shifted, or push back directly on a claim
-("what if that library did not exist"). When moving on, reference something
-specific and concrete (a named project, technology, or role), never a
-generic prompt. Either way, give it a target_seconds between 60 and 150.
+{followup_instructions}
 
 Finally, in "transition", write a short (one clause to one sentence)
 natural spoken acknowledgment of the candidate's last answer, the way an
@@ -73,44 +65,91 @@ Respond with strict JSON only, no other text, matching exactly this shape:
 {{"correction": "..." or null, "transition": "...", "question": "...", "target_seconds": 90}}
 """
 
+ENGAGEMENT_FOLLOWUP_NOTE = (
+    " You may also be given this turn's camera engagement observations (the "
+    "percent of time the candidate's face was in frame, the percent of time "
+    "their gaze was roughly forward, and head-pose stability) as raw "
+    "supplementary context alongside their spoken answer. Never treat it as "
+    "confidence, honesty or emotion, never let it override judging the words "
+    "themselves, and only mention it at all if it is genuinely extreme (e.g. "
+    "the candidate was out of frame for most of the answer) - always "
+    "alongside what they actually said, never by itself."
+)
 
-REPORT_PROMPT = """You are writing the final report for a completed mock technical interview.
-You will be given the candidate's resume and the full interview transcript
-(every question asked and every answer given, in order).
+REPORT_TEMPLATE = """You are writing the final report for a completed mock {label}.
+You will be given the full interview transcript (every question asked and
+every answer given, in order){resume_clause}.{engagement_report_note}
 
-Judge three dimensions, each on a 0-100 scale:
+Judge these dimensions, each on a 0-100 scale:
 
-"relevance" - did each answer actually address what was asked, or did the
-candidate talk around the question, skip parts of it, or answer a different
-question than the one asked. Judge across all answers together, not just one.
-
-"technical_knowledge" - was what the candidate said technically accurate and
-substantive, checked against what their resume actually claims. A confident
-but incorrect or hand-wavy answer should score low even if delivered fluently.
-
-"clarity" - how easy the answers were to follow, including genuine grammar
-errors (subject-verb agreement, tense consistency, and similar) if present.
-Do not penalize normal spoken-language patterns - sentence fragments,
-restarts, contractions - only score real communication problems.
+{dimension_block}
 
 For each dimension, give:
 - "value": the 0-100 score
 - "evidence": a short list of specific, checkable examples from the actual
   transcript, each as {{"label": "...", "value": "..."}} - "label" is brief
   context (which question/answer this is from), "value" is a quote or close
-  paraphrase of the candidate's own words. Never a vague justification. For
-  clarity, cite a specific error if one exists.
+  paraphrase of the candidate's own words. Never a vague justification.
 - "recommendation": one concrete, actionable sentence
 - "confidence": "high", or "low" if the transcript gave too little to judge
   this dimension fairly (e.g. very short answers throughout)
 
 Respond with strict JSON only, no other text, matching exactly this shape:
 {{"dimensions": [
-  {{"dimension": "Relevance", "value": 72, "evidence": [{{"label": "Q2 answer", "value": "..."}}], "recommendation": "...", "confidence": "high"}},
-  {{"dimension": "Technical Knowledge", "value": 60, "evidence": [{{"label": "...", "value": "..."}}], "recommendation": "...", "confidence": "high"}},
-  {{"dimension": "Clarity", "value": 80, "evidence": [{{"label": "...", "value": "..."}}], "recommendation": "...", "confidence": "high"}}
+{dimension_example_block}
 ]}}
 """
+
+ENGAGEMENT_REPORT_NOTE_TEMPLATE = (
+    " You are also given, per answer, this session's raw camera engagement "
+    "observations (percent of time the candidate's face was in frame, "
+    "percent of time their gaze was roughly forward, head-pose stability) as "
+    "supplementary evidence only. Use it, if at all, only to add supporting "
+    "color to the '{evidence_for}' dimension's evidence and recommendation "
+    "(e.g. noting sustained eye contact, or a candidate who stepped out of "
+    "frame) - never to justify a dimension's score by itself, never as a "
+    "stand-in for what the candidate actually said, and never described as "
+    "confidence, honesty or emotion."
+)
+
+
+def _build_first_question_prompt(track: dict) -> str:
+    return FIRST_QUESTION_TEMPLATE.format(
+        label=track["label"], opening_instructions=track["opening_instructions"]
+    )
+
+
+def _build_next_question_prompt(track: dict, has_engagement_signals: bool) -> str:
+    engagement_note = ENGAGEMENT_FOLLOWUP_NOTE if (track["uses_engagement_signals"] and has_engagement_signals) else ""
+    return NEXT_QUESTION_TEMPLATE.format(
+        label=track["label"],
+        engagement_note=engagement_note,
+        correction_criteria=track["correction_criteria"],
+        followup_instructions=track["followup_instructions"],
+    )
+
+
+def _build_report_prompt(track: dict, has_engagement_signals: bool) -> str:
+    dimension_block = "\n\n".join(
+        f'"{d["key"]}" - {d["judge"]}' for d in track["dimensions"]
+    )
+    dimension_example_block = ",\n".join(
+        f'  {{"dimension": "{d["key"]}", "value": 72, '
+        f'"evidence": [{{"label": "...", "value": "..."}}], '
+        f'"recommendation": "...", "confidence": "high"}}'
+        for d in track["dimensions"]
+    )
+    engagement_report_note = ""
+    if track["uses_engagement_signals"] and has_engagement_signals and track["evidence_for"]:
+        engagement_report_note = ENGAGEMENT_REPORT_NOTE_TEMPLATE.format(evidence_for=track["evidence_for"])
+    resume_clause = ", and the candidate's resume" if track.get("needs_resume", True) else ""
+    return REPORT_TEMPLATE.format(
+        label=track["label"],
+        resume_clause=resume_clause,
+        engagement_report_note=engagement_report_note,
+        dimension_block=dimension_block,
+        dimension_example_block=dimension_example_block,
+    )
 
 
 class DeepSeekError(RuntimeError):
@@ -163,8 +202,15 @@ def _format_history(history: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_next_question(resume_text: str, history: list[dict]) -> dict:
-    """One question at a time, adaptively.
+def generate_next_question(
+    resume_text: str,
+    history: list[dict],
+    *,
+    track: str | None = None,
+    engagement_signals: dict | None = None,
+) -> dict:
+    """One question at a time, adaptively, for whichever track this session
+    is (see tracks.py) — resume-driven tracks all share this one pipeline.
 
     history is the ordered list of {"question": str, "answer": str} pairs
     already asked and answered — empty on the first call. Returns:
@@ -172,13 +218,20 @@ def generate_next_question(resume_text: str, history: list[dict]) -> dict:
                     "target_seconds": int|None}
       later calls: {"correction": str|None, "question": str, "target_seconds": int}
 
+    engagement_signals is the most recent answer's camera telemetry
+    (face_in_frame_ratio, gaze_forward_ratio, head_pose_stability) — only
+    meaningful, and only sent, for tracks with uses_engagement_signals=True
+    (see tracks.py); ignored otherwise.
+
     Raises DeepSeekError for anything that stops this from producing a
     usable answer (no key, network/HTTP failure, malformed response) - the
     caller treats that as "processing failed", distinct from a model-judged
     valid=false on the first call.
     """
+    track_config = get_track(track)
+
     if not history:
-        parsed = _call(FIRST_QUESTION_PROMPT, resume_text)
+        parsed = _call(_build_first_question_prompt(track_config), resume_text)
         if "valid" not in parsed:
             raise DeepSeekError(f"DeepSeek response missing required fields: {parsed}")
         if parsed["valid"] and ("question" not in parsed or "target_seconds" not in parsed):
@@ -186,7 +239,13 @@ def generate_next_question(resume_text: str, history: list[dict]) -> dict:
         return parsed
 
     user_content = f"RESUME:\n{resume_text}\n\nINTERVIEW SO FAR:\n{_format_history(history)}"
-    parsed = _call(NEXT_QUESTION_PROMPT, user_content)
+    if track_config["uses_engagement_signals"] and engagement_signals:
+        user_content += (
+            "\n\nCAMERA OBSERVATIONS FOR THE LAST ANSWER (raw ratios, not scores):\n"
+            f"{json.dumps(engagement_signals)}"
+        )
+    prompt = _build_next_question_prompt(track_config, has_engagement_signals=bool(engagement_signals))
+    parsed = _call(prompt, user_content)
     if "question" not in parsed or "target_seconds" not in parsed:
         raise DeepSeekError(f"malformed DeepSeek response: {parsed}")
     return parsed
@@ -195,18 +254,38 @@ def generate_next_question(resume_text: str, history: list[dict]) -> dict:
 REPORT_REQUIRED_FIELDS = {"dimension", "value", "evidence", "recommendation"}
 
 
-def generate_report(resume_text: str, transcript: list[dict]) -> list[dict]:
-    """One call, once, after the interview ends - judges Relevance, Technical
-    Knowledge and Clarity over the whole transcript. Never touches
-    Fluency/Conciseness, which stay deterministic (score.py).
+def generate_report(resume_text: str, transcript: list[dict], *, track: str | None = None) -> list[dict]:
+    """One call, once, after the interview ends - judges the dimensions
+    tracks.py defines for this track over the whole transcript. Never
+    touches Fluency/Conciseness, which stay deterministic (score.py).
 
     transcript is the same {"question": str, "answer": str} shape as
     generate_next_question's history - the full interview, not just the
-    latest turn. Raises DeepSeekError on anything that stops this from
-    producing a usable report; the caller decides how to degrade.
+    latest turn. Entries may also carry "engagement_signals" (per-answer
+    camera telemetry); only tracks with uses_engagement_signals=True (see
+    tracks.py) actually get told to use it, and then only as supplementary
+    evidence for one named dimension, never scored on its own.
+
+    Raises DeepSeekError on anything that stops this from producing a
+    usable report; the caller decides how to degrade.
     """
-    user_content = f"RESUME:\n{resume_text}\n\nFULL TRANSCRIPT:\n{_format_history(transcript)}"
-    parsed = _call(REPORT_PROMPT, user_content)
+    track_config = get_track(track)
+    has_engagement_signals = track_config["uses_engagement_signals"] and any(
+        t.get("engagement_signals") for t in transcript
+    )
+
+    lines = []
+    for i, turn in enumerate(transcript, 1):
+        lines.append(f"Q{i}: {turn['question']}")
+        lines.append(f"A{i}: {turn['answer']}")
+        if has_engagement_signals and turn.get("engagement_signals"):
+            lines.append(f"Camera observations for A{i}: {json.dumps(turn['engagement_signals'])}")
+
+    resume_block = f"RESUME:\n{resume_text}\n\n" if track_config.get("needs_resume", True) else ""
+    user_content = f"{resume_block}FULL TRANSCRIPT:\n" + "\n".join(lines)
+
+    prompt = _build_report_prompt(track_config, has_engagement_signals)
+    parsed = _call(prompt, user_content)
     dimensions = parsed.get("dimensions")
     if not isinstance(dimensions, list) or not dimensions:
         raise DeepSeekError(f"malformed DeepSeek report response: {parsed}")

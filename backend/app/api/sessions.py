@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
+from ..llm.tracks import TRACKS
 from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
 from ..pipeline import process_answer
 from ..resume import ExtractError, check_resume_shape, extract_text
@@ -260,16 +261,22 @@ def complete_session(
     session.status = "complete"
     session.completed_at = datetime.now(timezone.utc)
 
-    # Only resume-driven sessions get a report (generate_session_report is a
-    # no-op for scripted tracks, no Resume row). Setting report_status here,
-    # synchronously, before the response returns, closes a real race: without
-    # this, report_status stays None until the background task actually
-    # starts, and a poll landing in that gap sees "not processing" with the
-    # report not yet generated - reproduced and confirmed against a real
-    # session (#15).
-    resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
-    if resume is not None and resume.status == "ready":
-        session.report_status = "processing"
+    # Only tracks with a report defined get one at all (generate_session_report
+    # is a no-op otherwise - e.g. Impromptu Speaking, by design). Resume-driven
+    # tracks additionally need the resume to have cleared setup; fixed-script
+    # tracks (no Resume row) don't. Setting report_status here, synchronously,
+    # before the response returns, closes a real race: without this,
+    # report_status stays None until the background task actually starts, and
+    # a poll landing in that gap sees "not processing" with the report not yet
+    # generated - reproduced and confirmed against a real session (#15).
+    track_config = TRACKS.get(session.assessment_id)
+    if track_config is not None:
+        if track_config.get("needs_resume", True):
+            resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+            if resume is not None and resume.status == "ready":
+                session.report_status = "processing"
+        else:
+            session.report_status = "processing"
 
     db.commit()
     db.refresh(session)
