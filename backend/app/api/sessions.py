@@ -11,7 +11,7 @@ from ..db import get_db
 from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
 from ..pipeline import process_answer
 from ..resume import ExtractError, check_resume_shape, extract_text
-from ..resume.pipeline import process_resume
+from ..resume.pipeline import generate_session_report, process_resume
 from ..schemas import AnswerOut, QuestionOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
 from ..storage import audio_store
 
@@ -236,7 +236,9 @@ def get_answer(answer_id: int, db: DbSession = Depends(get_db)) -> Answer:
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)
-def complete_session(session_id: int, db: DbSession = Depends(get_db)) -> InterviewSession:
+def complete_session(
+    session_id: int, background: BackgroundTasks, db: DbSession = Depends(get_db),
+) -> InterviewSession:
     session = db.get(InterviewSession, session_id)
     if session is None:
         raise HTTPException(404, "session not found")
@@ -244,6 +246,8 @@ def complete_session(session_id: int, db: DbSession = Depends(get_db)) -> Interv
     session.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)
+    # No-op for scripted tracks (no Resume row) - see generate_session_report.
+    background.add_task(generate_session_report, session_id)
     return session
 
 
@@ -295,6 +299,15 @@ def get_summary(session_id: int, db: DbSession = Depends(get_db)) -> SessionSumm
             "confidence": "low" if any(s["confidence"] == "low" for s in scores) else "high",
             "evidence": worst["evidence"],
         })
+    # The LLM-judged dimensions (Relevance, Technical Knowledge, Clarity) -
+    # generated once, after completion, over the whole transcript. Merged in
+    # alongside the deterministic per-answer ones above; report_status stays
+    # None for scripted tracks and sessions not yet completed, so this is a
+    # no-op for them. best/worst are the same as value here - this is one
+    # session-level judgment, not an aggregate across several answers like
+    # the rule-based dimensions above, but the results screen expects both.
+    for d in session.report_dimensions or []:
+        dimensions.append({**d, "best": d["value"], "worst": d["value"]})
     dimensions.sort(key=lambda d: d["value"])
 
     return SessionSummary(
@@ -302,7 +315,10 @@ def get_summary(session_id: int, db: DbSession = Depends(get_db)) -> SessionSumm
         answers_total=len(session.answers),
         answers_ready=ready,
         answers_failed=failed,
-        processing=any(a.status in ("queued", "processing") for a in session.answers),
+        processing=(
+            any(a.status in ("queued", "processing") for a in session.answers)
+            or session.report_status == "processing"
+        ),
         total_seconds=round(total_seconds, 1),
         dimensions=dimensions,
     )

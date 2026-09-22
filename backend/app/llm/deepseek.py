@@ -74,6 +74,45 @@ Respond with strict JSON only, no other text, matching exactly this shape:
 """
 
 
+REPORT_PROMPT = """You are writing the final report for a completed mock technical interview.
+You will be given the candidate's resume and the full interview transcript
+(every question asked and every answer given, in order).
+
+Judge three dimensions, each on a 0-100 scale:
+
+"relevance" - did each answer actually address what was asked, or did the
+candidate talk around the question, skip parts of it, or answer a different
+question than the one asked. Judge across all answers together, not just one.
+
+"technical_knowledge" - was what the candidate said technically accurate and
+substantive, checked against what their resume actually claims. A confident
+but incorrect or hand-wavy answer should score low even if delivered fluently.
+
+"clarity" - how easy the answers were to follow, including genuine grammar
+errors (subject-verb agreement, tense consistency, and similar) if present.
+Do not penalize normal spoken-language patterns - sentence fragments,
+restarts, contractions - only score real communication problems.
+
+For each dimension, give:
+- "value": the 0-100 score
+- "evidence": a short list of specific, checkable examples from the actual
+  transcript, each as {{"label": "...", "value": "..."}} - "label" is brief
+  context (which question/answer this is from), "value" is a quote or close
+  paraphrase of the candidate's own words. Never a vague justification. For
+  clarity, cite a specific error if one exists.
+- "recommendation": one concrete, actionable sentence
+- "confidence": "high", or "low" if the transcript gave too little to judge
+  this dimension fairly (e.g. very short answers throughout)
+
+Respond with strict JSON only, no other text, matching exactly this shape:
+{{"dimensions": [
+  {{"dimension": "Relevance", "value": 72, "evidence": [{{"label": "Q2 answer", "value": "..."}}], "recommendation": "...", "confidence": "high"}},
+  {{"dimension": "Technical Knowledge", "value": 60, "evidence": [{{"label": "...", "value": "..."}}], "recommendation": "...", "confidence": "high"}},
+  {{"dimension": "Clarity", "value": 80, "evidence": [{{"label": "...", "value": "..."}}], "recommendation": "...", "confidence": "high"}}
+]}}
+"""
+
+
 class DeepSeekError(RuntimeError):
     pass
 
@@ -151,3 +190,31 @@ def generate_next_question(resume_text: str, history: list[dict]) -> dict:
     if "question" not in parsed or "target_seconds" not in parsed:
         raise DeepSeekError(f"malformed DeepSeek response: {parsed}")
     return parsed
+
+
+REPORT_REQUIRED_FIELDS = {"dimension", "value", "evidence", "recommendation"}
+
+
+def generate_report(resume_text: str, transcript: list[dict]) -> list[dict]:
+    """One call, once, after the interview ends - judges Relevance, Technical
+    Knowledge and Clarity over the whole transcript. Never touches
+    Fluency/Conciseness, which stay deterministic (score.py).
+
+    transcript is the same {"question": str, "answer": str} shape as
+    generate_next_question's history - the full interview, not just the
+    latest turn. Raises DeepSeekError on anything that stops this from
+    producing a usable report; the caller decides how to degrade.
+    """
+    user_content = f"RESUME:\n{resume_text}\n\nFULL TRANSCRIPT:\n{_format_history(transcript)}"
+    parsed = _call(REPORT_PROMPT, user_content)
+    dimensions = parsed.get("dimensions")
+    if not isinstance(dimensions, list) or not dimensions:
+        raise DeepSeekError(f"malformed DeepSeek report response: {parsed}")
+    for d in dimensions:
+        if not REPORT_REQUIRED_FIELDS.issubset(d):
+            raise DeepSeekError(f"malformed dimension in DeepSeek report response: {d}")
+        # The model occasionally drops "confidence" despite the prompt's
+        # exact shape - default rather than fail the whole report over one
+        # optional-ish field on one dimension.
+        d.setdefault("confidence", "high")
+    return dimensions

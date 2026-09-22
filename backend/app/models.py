@@ -41,6 +41,14 @@ class InterviewSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
+    # The final holistic report (Relevance, Technical Knowledge, Clarity) -
+    # one DeepSeek call over the whole transcript, generated once after
+    # completion. None until completion is requested; the deterministic
+    # Fluency/Conciseness scores (score.py) never touch this and are ready
+    # immediately per-answer regardless of report status.
+    report_status: Mapped[str | None] = mapped_column(String(24), default=None)  # processing | ready | failed
+    report_dimensions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
+
     student: Mapped[Student] = relationship(back_populates="sessions")
     answers: Mapped[list["Answer"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Answer.id"

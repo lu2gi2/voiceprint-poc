@@ -10,8 +10,8 @@ import io
 import logging
 
 from ..db import SessionLocal
-from ..llm import DeepSeekError, generate_next_question
-from ..models import Answer, Resume, SessionQuestion
+from ..llm import DeepSeekError, generate_next_question, generate_report
+from ..models import Answer, InterviewSession, Resume, SessionQuestion
 from ..storage import audio_store
 from ..tts import synthesize_wav_bytes
 from .heuristic import redact_contact_info
@@ -150,5 +150,68 @@ def maybe_continue_interview(answer_id: int) -> None:
     except Exception:  # noqa: BLE001 — a bad turn must not kill the worker
         log.exception("session's next question failed for answer %s", answer_id)
         db.rollback()
+    finally:
+        db.close()
+
+
+def generate_session_report(session_id: int) -> None:
+    """Called once, after a resume-driven session is marked complete: one
+    DeepSeek call over the whole transcript, judging Relevance, Technical
+    Knowledge and Clarity. Never touches Fluency/Conciseness - those stay
+    deterministic and are already on each Answer regardless of report
+    status. No-op for scripted tracks (no Resume row) - same gate as
+    maybe_continue_interview.
+    """
+    db = SessionLocal()
+    try:
+        session = db.get(InterviewSession, session_id)
+        if session is None:
+            return
+
+        resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+        if resume is None or resume.status != "ready":
+            return  # scripted track, or resume-driven but never got past setup
+
+        answers = (
+            db.query(Answer)
+            .filter(Answer.session_id == session_id, Answer.transcript.isnot(None))
+            .order_by(Answer.question_index)
+            .all()
+        )
+        if not answers:
+            return  # nothing to judge
+
+        questions = {
+            q.question_index: q.prompt
+            for q in db.query(SessionQuestion).filter(SessionQuestion.session_id == session_id).all()
+        }
+        transcript = [
+            {"question": questions.get(a.question_index, a.prompt), "answer": a.transcript}
+            for a in answers
+        ]
+
+        session.report_status = "processing"
+        db.commit()
+
+        try:
+            dimensions = generate_report(redact_contact_info(resume.extracted_text or ""), transcript)
+        except DeepSeekError:
+            log.exception("session %s: report generation failed", session_id)
+            session.report_status = "failed"
+            db.commit()
+            return
+
+        session.report_dimensions = dimensions
+        session.report_status = "ready"
+        db.commit()
+        log.info("session %s: report generated, %d dimensions", session_id, len(dimensions))
+
+    except Exception:  # noqa: BLE001 — a bad report must not kill the worker
+        log.exception("report generation crashed for session %s", session_id)
+        db.rollback()
+        session = db.get(InterviewSession, session_id)
+        if session is not None:
+            session.report_status = "failed"
+            db.commit()
     finally:
         db.close()
