@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..db import SessionLocal
-from ..models import Answer
+from ..models import Answer, AnswerScore
 from ..storage import audio_store
 from .acoustics import analyse
 from .audio import to_wav16k
@@ -29,6 +29,7 @@ def process_answer(answer_id: int) -> None:
             return
 
         answer.status = "processing"
+        answer.processing_started_at = datetime.now(timezone.utc)
         db.commit()
 
         src = audio_store.path(answer.audio_key)
@@ -45,10 +46,21 @@ def process_answer(answer_id: int) -> None:
         answer.words = tr.as_dicts()
         answer.measurements = m.as_dict()
         answer.scores = [s.as_dict() for s in scores]
+        answer.answer_scores = [
+            AnswerScore(
+                dimension=s.dimension,
+                value=s.value,
+                recommendation=s.recommendation,
+                confidence=s.confidence,
+                evidence=s.evidence,
+            )
+            for s in scores
+        ]
         answer.duration_seconds = m.duration_seconds
         answer.status = "ready"
         answer.error = None
         answer.processed_at = datetime.now(timezone.utc)
+        answer.processing_started_at = None
         db.commit()
         log.info("answer %s processed: %d words, %.0f wpm", answer_id, m.word_count,
                  m.speaking_rate_wpm)
@@ -60,6 +72,7 @@ def process_answer(answer_id: int) -> None:
         if answer is not None:
             answer.status = "failed"
             answer.error = str(exc)[:500]
+            answer.processing_started_at = None
             db.commit()
     finally:
         if wav is not None:

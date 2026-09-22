@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScrolled } from '../hooks/useReveal';
-import { student, NOTIFICATIONS } from '../data/fixtures';
 
 function Logo() {
   return (
@@ -16,10 +15,10 @@ function Logo() {
 }
 
 export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoReports }) {
-  const name = user?.name || student.name;
+  const name = user?.name || 'Student';
   const scrolled = useScrolled();
   const [popOpen, setPopOpen] = useState(false);
-  const [unread, setUnread] = useState(true);
+  const [unread, setUnread] = useState(false);
   const wrapRef = useRef(null);
   const bellRef = useRef(null);
 
@@ -82,7 +81,7 @@ export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoR
             className="icon-btn"
             ref={bellRef}
             onClick={toggleBell}
-            aria-label={`Notifications, ${NOTIFICATIONS.length} new`}
+            aria-label="Notifications"
             aria-expanded={popOpen}
             aria-controls="nav-pop"
           >
@@ -94,13 +93,9 @@ export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoR
           </button>
 
           <div className="pop" id="nav-pop" hidden={!popOpen}>
-            {NOTIFICATIONS.map((n) => (
-              <p key={n}>
-                <button type="button" onClick={() => { setPopOpen(false); onGoPractice(); }}>
-                  {n}
-                </button>
-              </p>
-            ))}
+            <p><button type="button" onClick={() => { setPopOpen(false); onGoPractice(); }}>
+              Complete an assessment to receive database-backed coaching.
+            </button></p>
           </div>
         </div>
 

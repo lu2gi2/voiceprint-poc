@@ -17,6 +17,23 @@ npm install
 npm run dev
 ```
 
+## Deployment
+
+The frontend is configured for Netlify through `netlify.toml`. Set the Netlify
+environment variable `VITE_API_URL` to the public HTTPS URL of the deployed
+FastAPI backend before building.
+
+The backend can run from `backend/Dockerfile`. Configure these backend
+environment variables in the hosting provider:
+
+- `DATABASE_URL`: managed PostgreSQL connection string
+- `CORS_ORIGINS`: JSON list containing the Netlify site origin
+- `STORAGE_DIR`: durable object-storage integration is required for production audio retention
+- `WHISPER_MODEL`, `WHISPER_DEVICE`, and `WHISPER_COMPUTE_TYPE`: speech runtime settings
+
+The backend container runs `alembic upgrade head` before starting FastAPI. Do
+not run the development seed script in a production database.
+
 Then open the printed URL. Production build: `npm run build && npm run preview`.
 
 Recording needs a secure context, so use `localhost` or https — the app says so

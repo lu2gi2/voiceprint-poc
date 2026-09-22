@@ -1,6 +1,5 @@
 import { forwardRef } from 'react';
 import { Tape } from './paper';
-import { coachingPlan } from '../data/fixtures';
 
 /** The circled-in-red focus word, as if marked by hand. */
 function Circled({ children }) {
@@ -14,7 +13,7 @@ function Circled({ children }) {
   );
 }
 
-const CoachingCue = forwardRef(function CoachingCue({ onPractice }, ref) {
+const CoachingCue = forwardRef(function CoachingCue({ onPractice, focus }, ref) {
   return (
     <section className="coach" id="practice" ref={ref} aria-label="Next coaching cue">
       <div className="coach-in">
@@ -37,7 +36,7 @@ const CoachingCue = forwardRef(function CoachingCue({ onPractice }, ref) {
             <div>
               <dt>Focus:</dt>
               <dd>
-                <Circled>{coachingPlan.weakness}</Circled>
+                <Circled>{focus || 'Complete an assessment'}</Circled>
               </dd>
             </div>
             <div>

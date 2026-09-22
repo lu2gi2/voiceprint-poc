@@ -1,18 +1,21 @@
 import { forwardRef } from 'react';
 import GrowthGraph from './GrowthGraph';
-import { CHECKS } from '../data/fixtures';
 import { fixed as f } from '../lib/chalk';
 
 const TICK = 'M4 19 C8 22 11 25 13 29 C17 19 24 11 32 5';
 
-function Checklist() {
+function Checklist({ dimensions }) {
+  if (!dimensions.length) {
+    return <p className="b-sub">Complete an assessment to see your stored scores here.</p>;
+  }
+
   return (
     <ul>
-      {CHECKS.map(([word, sub], i) => {
+      {dimensions.map(({ name, score }, i) => {
         const a = 0.06 + i * 0.16;
         return (
           <li
-            key={word}
+            key={name}
             className="ck rv"
             data-ch="l"
             data-a={f(a)}
@@ -31,8 +34,8 @@ function Checklist() {
               />
             </svg>
             <span>
-              <span className="w">{word}</span>
-              <span className="s">{sub}</span>
+              <span className="w">{name}</span>
+              <span className="s">{score}/100</span>
             </span>
           </li>
         );
@@ -47,7 +50,7 @@ function Checklist() {
  * full stats page.
  */
 const Blackboard = forwardRef(function Blackboard(
-  { stickRef, frameRef, graphRef, listRef, onOpenStats },
+  { stickRef, frameRef, graphRef, listRef, onOpenStats, dimensions = [], growth = [] },
   trackRef,
 ) {
   return (
@@ -75,7 +78,7 @@ const Blackboard = forwardRef(function Blackboard(
                   <span className="g-sub">LAST 6 PRACTICES</span>
                 </div>
                 <div className="g-svg">
-                  <GrowthGraph />
+                  <GrowthGraph growth={growth} />
                 </div>
                 <p className="g-axis rv" data-ch="g" data-a=".85" data-b="1" style={{ '--r': 0 }}>
                   steadier → clearer → more confident
@@ -101,7 +104,7 @@ const Blackboard = forwardRef(function Blackboard(
                   </svg>
                 </h3>
 
-                <Checklist />
+                <Checklist dimensions={dimensions} />
 
                 <p className="b-quote rv" data-ch="l" data-a=".86" data-b="1" style={{ '--r': 0 }}>
                   Say less. Mean more.

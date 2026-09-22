@@ -34,16 +34,14 @@ class LocalAudioStore:
     def delete(self, key: str) -> None:
         self.path(key).unlink(missing_ok=True)
 
-    def purge_older_than(self, days: int) -> int:
-        """Delete audio past the retention window (PRD §16). Returns the count.
-        Nothing calls this on a schedule yet — it is the hook a cron job or a
-        startup task uses once retention actually matters."""
+    def purge_older_than(self, days: int) -> list[str]:
+        """Delete audio past the retention window and return deleted keys."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        removed = 0
+        removed: list[str] = []
         for f in self.root.rglob("*"):
             if f.is_file() and datetime.fromtimestamp(f.stat().st_mtime, timezone.utc) < cutoff:
                 f.unlink(missing_ok=True)
-                removed += 1
+                removed.append(str(f.relative_to(self.root)))
         return removed
 
 

@@ -2,12 +2,13 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
-from ..models import Answer, InterviewSession, Student
+from ..models import Answer, AssessmentCatalog, InterviewSession, Student
 from ..pipeline import process_answer
-from ..schemas import AnswerOut, SessionCreate, SessionOut, SessionSummary
+from ..schemas import AnswerOut, SessionCreate, SessionOut, SessionSummary, StudentIn
 from ..storage import audio_store
 
 router = APIRouter(prefix="/api", tags=["sessions"])
@@ -27,6 +28,43 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # ~25 minutes of opus; a single answer is f
 
 def _suffix(mime: str) -> str:
     return SUFFIX_FOR.get((mime or "").split(";")[0].strip(), ".webm")
+
+
+@router.get("/assessments")
+def list_assessments(db: DbSession = Depends(get_db)) -> list[dict]:
+    """Return the persisted assessment catalogue and question definitions."""
+    rows = db.query(AssessmentCatalog).order_by(AssessmentCatalog.id).all()
+    return [
+        {
+            "id": row.id,
+            "title": row.title,
+            "kind": row.kind,
+            "desc": row.description,
+            "icon": row.icon,
+            "status": row.status,
+            "soonWhy": row.soon_reason,
+            "measures": row.measures,
+            "questions": row.questions,
+        }
+        for row in rows
+    ]
+
+
+@router.post("/students", status_code=201)
+def upsert_student(payload: StudentIn, db: DbSession = Depends(get_db)) -> dict:
+    """Create or update the demo student's persisted profile."""
+    email = payload.email.strip()
+    name = payload.name.strip()
+
+    student = db.query(Student).filter(Student.email == email).one_or_none()
+    if student is None:
+        student = Student(email=email, name=name)
+        db.add(student)
+    else:
+        student.name = name
+    db.commit()
+    db.refresh(student)
+    return {"id": student.id, "email": student.email, "name": student.name, "created_at": student.created_at}
 
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
@@ -93,7 +131,12 @@ async def upload_answer(
         audio_mime=audio.content_type or "audio/webm",
     )
     db.add(answer)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        audio_store.delete(key)
+        raise HTTPException(409, "an answer for this question already exists") from None
     db.refresh(answer)
 
     background.add_task(process_answer, answer.id)
@@ -108,6 +151,69 @@ def get_answer(answer_id: int, db: DbSession = Depends(get_db)) -> Answer:
     if answer is None:
         raise HTTPException(404, "answer not found")
     return answer
+
+
+@router.get("/students/{email}/dashboard")
+def get_student_dashboard(email: str, db: DbSession = Depends(get_db)) -> dict:
+    """Return dashboard data derived from persisted student/session records."""
+    student = db.query(Student).filter(Student.email == email).one_or_none()
+    if student is None:
+        raise HTTPException(404, "student not found")
+
+    sessions = sorted(student.sessions, key=lambda item: item.created_at, reverse=True)
+    dimension_values: dict[str, list[int]] = defaultdict(list)
+    score_records = []
+    growth = []
+    recent = []
+    for session in sessions:
+        ready_answers = [answer for answer in session.answers if answer.status == "ready"]
+        for answer in ready_answers:
+            for score in answer.scores or []:
+                dimension_values[score["dimension"]].append(score["value"])
+                score_records.append({
+                    **score,
+                    "session_id": session.id,
+                    "answer_id": answer.id,
+                    "created_at": answer.created_at,
+                })
+        session_values = [score["value"] for answer in ready_answers for score in answer.scores or []]
+        if session_values:
+            growth.append({
+                "label": str(len(growth) + 1),
+                "score": round(sum(session_values) / len(session_values)),
+                "created_at": session.created_at,
+            })
+        recent.append({
+            "id": session.id,
+            "title": session.assessment_title,
+            "assessment_id": session.assessment_id,
+            "created_at": session.created_at,
+            "answers": len(session.answers),
+            "duration_seconds": round(sum(a.duration_seconds or 0 for a in session.answers), 1),
+            "status": session.status,
+        })
+
+    dimensions = [
+        {"name": name, "score": round(sum(values) / len(values)), "count": len(values)}
+        for name, values in sorted(dimension_values.items())
+    ]
+    dimensions.sort(key=lambda item: item["score"])
+    weakest = dimensions[0] if dimensions else None
+    return {
+        "student": {
+            "id": student.id,
+            "email": student.email,
+            "name": student.name,
+            "created_at": student.created_at,
+        },
+        "practice_count": len(sessions),
+        "recent": recent[:10],
+        "dimensions": dimensions,
+        "scores": score_records,
+        "growth": growth[-6:],
+        "readiness": round(sum(item["score"] for item in dimensions) / len(dimensions)) if dimensions else None,
+        "focus": weakest["name"] if weakest else None,
+    }
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)

@@ -6,7 +6,7 @@ import SessionPage from './pages/SessionPage';
 import StatsPage from './pages/StatsPage';
 import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
-import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
+import { checkDatabaseHealth, completeSession, createSession, getAssessments, getStudentDashboard, saveStudent } from './lib/api';
 
 /* No router — the POC is a small set of views: the journey page, the full
    report behind the blackboard, the assessment picker, and a live session. */
@@ -14,23 +14,58 @@ import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('journey');
-  const [practiceCount, setPracticeCount] = useState(student.practices);
-  const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));
+  const [practiceCount, setPracticeCount] = useState(0);
+  const [recent, setRecent] = useState([]);
   const [freshId, setFreshId] = useState(null);
 
   const [openNote, setOpenNote] = useState(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
-  const [question, setQuestion] = useState(PRACTICE_QUESTIONS[0]);
+  const [question, setQuestion] = useState('Complete an assessment to receive a practice question.');
   const [runningId, setRunningId] = useState(null);
+  const [databaseHealth, setDatabaseHealth] = useState(null);
+  const [dashboard, setDashboard] = useState(null);
+  const [authError, setAuthError] = useState(null);
+  const [assessmentCatalog, setAssessmentCatalog] = useState([]);
 
   const qIndex = useRef(0);
   const nextId = useRef(0);
   const returnScroll = useRef(0);
 
+  const authenticate = async (candidate) => {
+    try {
+      const saved = await saveStudent(candidate);
+      setUser(saved);
+      setAuthError(null);
+    } catch {
+      setAuthError('The database could not save your profile. Start the backend and try again.');
+    }
+  };
+
+  useEffect(() => {
+    checkDatabaseHealth().then(setDatabaseHealth);
+    getAssessments().then(setAssessmentCatalog).catch(() => setAssessmentCatalog([]));
+  }, []);
+
+  const refreshDashboard = () => {
+    if (!user?.email) return Promise.resolve();
+    return getStudentDashboard(user.email).then((data) => {
+      setDashboard(data);
+      setPracticeCount(data.practice_count);
+      return data;
+    });
+  };
+
   const signOut = () => {
     setUser(null);
     setView('journey');
   };
+
+  useEffect(() => {
+    if (!user?.email) return;
+    refreshDashboard()
+      .then((data) => setUser((current) => ({ ...current, ...data.student })))
+      .catch(() => setDashboard(null));
+  }, [user?.email]);
 
   // Every other view opens at the top; coming back to the journey restores
   // the reader's place rather than dumping them at the masthead.
@@ -54,49 +89,31 @@ export default function App() {
   /* The 45-second drill is still reachable from a skill note — it is the
      quick version, where the assessment tracks are the real thing. */
   const openQuickDrill = () => {
-    setQuestion(PRACTICE_QUESTIONS[qIndex.current % PRACTICE_QUESTIONS.length]);
+    const questions = assessmentCatalog.find((assessment) => assessment.status === 'ready')?.questions || [];
+    setQuestion(questions[qIndex.current % questions.length]?.prompt || 'Complete an assessment to receive a practice question.');
     qIndex.current += 1;
     setOpenNote(null);
     setPracticeOpen(true);
   };
 
   /* A finished session pins one entry per answer to the journal. */
-  const finishSession = (assessment, entries) => {
-    const total = entries.reduce((s2, e) => s2 + e.seconds, 0);
-    const id = `s-${nextId.current++}`;
-    setPracticeCount((c) => c + 1);
-    setFreshId(id);
-    setRecent((list) => [
-      {
-        id,
-        t: assessment.title.toUpperCase(),
-        q: `${entries.length} answers recorded`,
-        w: 'Today',
-        d: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(Math.floor(total % 60)).padStart(2, '0')}`,
-        rot: -1.2,
-        dx: 0,
-      },
-      ...list,
-    ].slice(0, 4));
-    // Deliberately does not navigate: the session stays mounted so its results
-    // screen can show what the backend measured. Leaving is the student's call.
-  };
+  const finishSession = () => refreshDashboard().catch(() => {});
 
-  const finishPractice = (q, elapsed) => {
-    const id = `p-${nextId.current++}`;
-    setPracticeCount((c) => c + 1);
-    setFreshId(id);
-    setRecent((list) =>
-      [
-        { id, t: 'FOCUS PRACTICE', q, w: 'Today', d: `00:${String(elapsed).padStart(2, '0')}`, rot: -1.2, dx: 0 },
-        ...list,
-      ].slice(0, 4),
-    );
+  const finishPractice = async () => {
+    const assessment = assessmentCatalog.find((item) => item.status === 'ready');
+    if (!assessment || !user?.email) return;
+    try {
+      const session = await createSession({ student: user, assessment });
+      await completeSession(session.id);
+      await refreshDashboard();
+    } catch {
+      setAuthError('Practice could not be saved to the database. Please try again.');
+    }
   };
 
   // Nothing is gated for real — there is no backend. The auth page is the
   // front door of the demo, not a security boundary.
-  if (!user) return <AuthPage onAuthed={setUser} />;
+  if (!user) return <AuthPage onAuthed={authenticate} error={authError} />;
 
   return (
     <>
@@ -104,15 +121,17 @@ export default function App() {
         <AssessmentsPage
           onBack={() => setView('journey')}
           onPick={(id) => { setRunningId(id); setView('session'); }}
+          assessments={assessmentCatalog}
         />
       )}
 
       {view === 'session' && (
         <SessionPage
           assessmentId={runningId}
+          assessment={assessmentCatalog.find((item) => item.id === runningId)}
           user={user}
           onExit={() => { setRunningId(null); setView('assessments'); }}
-          onDone={() => { setRunningId(null); setView('journey'); }}
+          onDone={() => { refreshDashboard().catch(() => {}); setRunningId(null); setView('journey'); }}
           onComplete={finishSession}
         />
       )}
@@ -122,11 +141,20 @@ export default function App() {
           user={user}
           onSignOut={signOut}
           practiceCount={practiceCount}
-          recent={recent}
+          recent={dashboard?.recent?.map((item) => ({
+            id: `session-${item.id}`,
+            t: item.title.toUpperCase(),
+            q: `${item.answers} answers recorded`,
+            w: new Date(item.created_at).toLocaleDateString(),
+            d: `${Math.floor(item.duration_seconds / 60)}:${String(Math.floor(item.duration_seconds % 60)).padStart(2, '0')}`,
+            rot: -1.2,
+            dx: 0,
+          })) || recent}
           freshId={freshId}
           onOpenNote={setOpenNote}
           onPractice={openPractice}
           onOpenStats={openStats}
+          dashboard={dashboard}
         />
       )}
 
@@ -135,13 +163,18 @@ export default function App() {
           onBack={() => setView('journey')}
           onPractice={openPractice}
           practiceCount={practiceCount}
+          dashboard={dashboard}
         />
       )}
 
       {view !== 'session' && view !== 'assessments' && (
         <footer>
           <span>voiceprint · Speak. Grow. Get Hired.</span>
-          <span>Sample data for design preview</span>
+          <span>
+            Database: {databaseHealth?.status === 'connected'
+              ? `${databaseHealth.database} · Connected`
+              : 'Unavailable'}
+          </span>
         </footer>
       )}
 
@@ -149,6 +182,7 @@ export default function App() {
         noteKey={openNote}
         onClose={() => setOpenNote(null)}
         onPractice={openQuickDrill}
+        dimensions={dashboard?.dimensions || []}
       />
       <PracticeDialog
         open={practiceOpen}

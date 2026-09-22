@@ -1,10 +1,18 @@
 import { Fragment, useRef } from 'react';
 import { Arrow } from './paper';
 import { useInViewOnce } from '../hooks/useReveal';
-import { STEPS } from '../data/fixtures';
+
+const STEPS = [
+  ['ASSESS', 'hear your baseline', 'var(--y)', -3],
+  ['ANALYZE', 'see the evidence', 'var(--p)', 2.5],
+  ['COACH', 'one clear focus', 'var(--b)', -2],
+  ['PRACTICE', 'try it again', 'var(--g)', 3],
+  ['REASSESS', 'measure the change', 'var(--l)', -2.5],
+  ['GROW', 'carry it forward', 'var(--y)', 2],
+];
 
 /** The closing loop: Assess → Analyze → Coach → Practice → Reassess → Grow. */
-export default function GrowthJourney() {
+export default function GrowthJourney({ steps = STEPS }) {
   const ref = useRef(null);
   const on = useInViewOnce(ref, 0.5);
 
@@ -12,7 +20,7 @@ export default function GrowthJourney() {
     <section className="closing" aria-labelledby="closeH">
       <div className="closing-in">
         <ol className={`journey${on ? ' on' : ''}`} ref={ref} aria-label="The voiceprint loop">
-          {STEPS.map(([name, sub, color, rot], i) => (
+          {steps.map(([name, sub, color, rot], i) => (
             <Fragment key={name}>
               <li className="step" style={{ '--i': i, '--c': color, '--rot': `${rot}deg` }}>
                 <span className="mini" />

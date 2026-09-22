@@ -6,7 +6,7 @@
  * and lets the caller carry on; none of them throw into the UI.
  */
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 async function req(path, options = {}, { timeout = 15000 } = {}) {
   const ctrl = new AbortController();
@@ -29,6 +29,14 @@ export async function checkHealth() {
   }
 }
 
+export async function checkDatabaseHealth() {
+  try {
+    return await req('/api/health/db', {}, { timeout: 2500 });
+  } catch {
+    return null;
+  }
+}
+
 export async function createSession({ student, assessment }) {
   return req('/api/sessions', {
     method: 'POST',
@@ -39,6 +47,22 @@ export async function createSession({ student, assessment }) {
       assessment_title: assessment.title,
     }),
   });
+}
+
+export async function getStudentDashboard(email) {
+  return req(`/api/students/${encodeURIComponent(email)}/dashboard`);
+}
+
+export async function saveStudent(student) {
+  return req('/api/students', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(student),
+  });
+}
+
+export async function getAssessments() {
+  return req('/api/assessments');
 }
 
 export async function uploadAnswer(sessionId, { index, prompt, target, blob, mime }) {

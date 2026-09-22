@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -21,11 +21,50 @@ class Student(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True, default=None)
+    cohort_id: Mapped[int | None] = mapped_column(ForeignKey("cohorts.id"), index=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
+    department: Mapped["Department | None"] = relationship(back_populates="students")
+    cohort: Mapped["Cohort | None"] = relationship(back_populates="students")
     sessions: Mapped[list["InterviewSession"]] = relationship(
         back_populates="student", cascade="all, delete-orphan"
     )
+
+
+class Department(Base):
+    __tablename__ = "departments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+
+    students: Mapped[list[Student]] = relationship(back_populates="department")
+
+
+class Cohort(Base):
+    __tablename__ = "cohorts"
+    __table_args__ = (UniqueConstraint("name", "department_id", name="uq_cohorts_name_department"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True, default=None)
+
+    students: Mapped[list[Student]] = relationship(back_populates="cohort")
+
+
+class AssessmentCatalog(Base):
+    __tablename__ = "assessment_catalog"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(160))
+    kind: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text)
+    icon: Mapped[str] = mapped_column(String(48))
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    soon_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    measures: Mapped[list[str]] = mapped_column(JSON)
+    questions: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
 
 
 class InterviewSession(Base):
@@ -65,7 +104,7 @@ class Answer(Base):
     prompt: Mapped[str] = mapped_column(Text)
     target_seconds: Mapped[int] = mapped_column(Integer)
 
-    audio_key: Mapped[str] = mapped_column(String(255))
+    audio_key: Mapped[str | None] = mapped_column(String(255), default=None)
     audio_mime: Mapped[str] = mapped_column(String(64), default="audio/webm")
     duration_seconds: Mapped[float | None] = mapped_column(Float, default=None)
 
@@ -80,5 +119,31 @@ class Answer(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    audio_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     session: Mapped[InterviewSession] = relationship(back_populates="answers")
+    answer_scores: Mapped[list["AnswerScore"]] = relationship(
+        back_populates="answer", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "question_index", name="uq_answers_session_question"),
+    )
+
+
+class AnswerScore(Base):
+    __tablename__ = "answer_scores"
+    __table_args__ = (
+        UniqueConstraint("answer_id", "dimension", name="uq_answer_scores_answer_dimension"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    answer_id: Mapped[int] = mapped_column(ForeignKey("answers.id", ondelete="CASCADE"), index=True)
+    dimension: Mapped[str] = mapped_column(String(80), index=True)
+    value: Mapped[int] = mapped_column(Integer, index=True)
+    recommendation: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[str] = mapped_column(String(16))
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+
+    answer: Mapped[Answer] = relationship(back_populates="answer_scores")

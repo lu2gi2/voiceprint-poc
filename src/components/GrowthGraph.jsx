@@ -1,6 +1,5 @@
 import { rngF, smooth, wobble, handCircle, fixed as f } from '../lib/chalk';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { growth } from '../data/fixtures';
 
 /* Props shared by every element the scroll engine draws in. Starting hidden
    avoids a flash of fully-drawn chalk before the first scroll frame lands. */
@@ -20,7 +19,7 @@ const fade = (a, b, ch = 'g', extra = '') => ({
   style: { '--r': 0 },
 });
 
-export default function GrowthGraph() {
+export default function GrowthGraph({ growth = [] }) {
   const m = useIsMobile();
   const W = m ? 400 : 640;
   const H = m ? 340 : 330;
@@ -29,13 +28,15 @@ export default function GrowthGraph() {
   const T = m ? 44 : 46;
   const B = m ? 46 : 48;
 
-  const { data, labels } = growth;
+  const data = growth.length ? growth.map((item) => item.score) : [0];
+  const labels = growth.length ? growth.map((item) => item.label) : ['—'];
+  const pointCount = Math.max(data.length - 1, 1);
 
   // Seeded so the wobble is identical on every render at a given breakpoint.
   // The call ORDER below must not change or the strokes shift.
   const rng = rngF(7);
   const pts = data.map((v, i) => [
-    L + (i * (W - L - R)) / 5,
+    L + (i * (W - L - R)) / pointCount,
     H - B - ((v - 45) / 45) * (H - B - T),
   ]);
 
@@ -54,7 +55,7 @@ export default function GrowthGraph() {
   const lp = [];
   pts.forEach((p, i) => {
     lp.push([p[0] + (rng() - 0.5) * 1.5, p[1] + (rng() - 0.5) * 1.5]);
-    if (i < 5) {
+    if (i < data.length - 1) {
       const q = pts[i + 1];
       lp.push([
         (p[0] + q[0]) / 2 + (rng() - 0.5) * 4,
@@ -67,9 +68,9 @@ export default function GrowthGraph() {
   const linePath2 = smooth(lp2, false);
 
   const marks = pts.map((p, i) => {
-    const a = 0.25 + 0.6 * (i / 5) - 0.02;
+    const a = 0.25 + 0.6 * (i / pointCount) - 0.02;
     const b = a + 0.07;
-    const last = i === 5;
+    const last = i === data.length - 1;
     return {
       i, a, b, last,
       ring: handCircle(p[0], p[1], last ? 12 : 9, rng),

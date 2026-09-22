@@ -11,8 +11,8 @@ const BARS = Array.from({ length: 30 }, (_, i) => ({
 }));
 
 /**
- * The 45-second focus practice. This is the POC stand-in for the real capture
- * step — it times the answer and pins it to the journal, but records nothing.
+ * The 45-second focus practice. Completion is persisted by the parent through
+ * the session API so the journal remains database-backed.
  */
 export default function PracticeDialog({ open, question, onClose, onFinish }) {
   const [phase, setPhase] = useState('ready'); // ready | running | done
@@ -81,7 +81,7 @@ export default function PracticeDialog({ open, question, onClose, onFinish }) {
         )}
 
         {phase === 'done' && (
-          <p className="done-msg">Pinned to your journal. Next, reassess to see what changed.</p>
+          <p className="done-msg">Practice saved. Next, reassess to see what changed.</p>
         )}
 
         <div className="d-act">

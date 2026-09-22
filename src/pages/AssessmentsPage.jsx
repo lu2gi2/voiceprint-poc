@@ -1,20 +1,19 @@
 import Icon from '../components/Icon';
 import { Pin, Tape, Underline } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
-import { assessments } from '../data/assessments';
 
 /* PRD FR-02 — the student picks what to be assessed on. Laid out as the wall
    of notes the rest of the app already uses, so choosing a track feels like
    pulling a card off the board rather than filling in a form. */
 
-function TrackNote({ a, onPick }) {
+function TrackNote({ a, onPick, index }) {
   const soon = a.status === 'soon';
   const mins = Math.max(1, Math.round(a.questions.reduce((s, q) => s + q.target, 0) / 60));
 
   return (
     <article className={`track${soon ? ' soon' : ''}`}
-      style={{ '--c': a.c, '--rot': `${a.rot}deg` }}>
-      {a.tape ? <Tape rotate={a.rot > 0 ? -4 : 3} /> : <Pin color={a.pin} />}
+      style={{ '--c': ['var(--b)', 'var(--g)', 'var(--y)', 'var(--l)', 'var(--p)'][index % 5], '--rot': `${index % 2 ? 1.4 : -1.8}deg` }}>
+      {index % 2 ? <Tape rotate={3} /> : <Pin color="#C0483E" />}
 
       <div className="track-top">
         <span className="track-icon"><Icon name={a.icon} size={19} /></span>
@@ -47,7 +46,7 @@ function TrackNote({ a, onPick }) {
   );
 }
 
-export default function AssessmentsPage({ onBack, onPick }) {
+export default function AssessmentsPage({ onBack, onPick, assessments = [] }) {
   const scrolled = useScrolled();
   const ready = assessments.filter((a) => a.status === 'ready');
   const soon = assessments.filter((a) => a.status === 'soon');
@@ -77,13 +76,13 @@ export default function AssessmentsPage({ onBack, onPick }) {
 
         <section className="tracks-wrap" aria-label="Assessment tracks">
           <div className="tracks">
-            {ready.map((a) => <TrackNote key={a.id} a={a} onPick={onPick} />)}
+            {ready.map((a, i) => <TrackNote key={a.id} a={a} index={i} onPick={onPick} />)}
           </div>
 
           <div className="tracks-soon">
             <h2 className="eyebrow">COMING LATER</h2>
             <div className="tracks">
-              {soon.map((a) => <TrackNote key={a.id} a={a} onPick={onPick} />)}
+              {soon.map((a, i) => <TrackNote key={a.id} a={a} index={i} onPick={onPick} />)}
             </div>
           </div>
         </section>

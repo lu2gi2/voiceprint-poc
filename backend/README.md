@@ -16,20 +16,50 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 Needs `ffmpeg` on PATH. First request downloads the Whisper model (~150 MB),
 so it is slow once and fast after.
 
-Defaults to SQLite, so there is nothing to set up. For the Postgres the PRD
-targets: `docker compose up -d`, then set
-`DATABASE_URL=postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint`.
+PostgreSQL is the deployment default. Start the included PostgreSQL 16 service,
+then set `DATABASE_URL=postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint`.
+SQLite remains available only when explicitly selected, for example
+`DATABASE_URL=sqlite:///voiceprint.db`.
+
+For a hosted frontend, set the Vite build variable `VITE_API_URL` to the public
+HTTPS URL of the deployed FastAPI service. Set the backend `CORS_ORIGINS`
+environment variable to a JSON list containing the deployed frontend origin,
+for example `["https://your-site.netlify.app"]`.
+
+Initialize or upgrade the schema with Alembic before starting the API:
+
+```bash
+docker compose up -d
+# PowerShell: $env:DATABASE_URL="postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint"
+alembic upgrade head
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+For a local screen demonstration, seed clearly labeled development rows through
+SQLAlchemy. This is idempotent and does not delete existing data:
+
+```powershell
+$env:PYTHONPATH="C:\path\to\voiceprint-poc\backend"
+$env:DATABASE_URL="postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint"
+python seed_demo_data.py
+```
+
+The seed account is `database-demo-student@example.com`. It is for demos only;
+production sessions and scores must come from real API requests and recordings.
 
 ## API
 
 | | |
 | --- | --- |
 | `POST /api/sessions` | open a session |
+| `POST /api/students` | create or update a persisted student profile |
+| `GET /api/assessments` | read the persisted assessment catalogue and questions |
 | `POST /api/sessions/{id}/answers` | upload one answer (multipart) → `202` |
 | `GET /api/sessions/{id}` | full session, per-answer transcript + measurements |
 | `GET /api/sessions/{id}/summary` | per-dimension rollup, weakest first |
 | `POST /api/sessions/{id}/complete` | mark finished |
 | `GET /api/health` | also what the front end pings to decide live-vs-fixtures |
+| `GET /api/health/db` | executes `SELECT 1` and reports the active database |
 
 Upload returns `202` because transcription takes seconds to tens of seconds.
 The client polls. `BackgroundTasks` is the right size for a POC — swap in a
@@ -79,5 +109,8 @@ them as fillers would manufacture evidence the audio does not support.
 ## Not done yet
 
 No auth — `POST /sessions` trusts the email it is handed. No LLM stage. No
-longitudinal profile across sessions. Audio retention is implemented
-(`storage.purge_older_than`) but nothing calls it on a schedule.
+longitudinal profile across sessions. Audio retention runs during API startup;
+deleted files have their `audio_key` cleared and receive an
+`audio_deleted_at` timestamp. Answers left in `processing` during a restart
+are marked `failed` because the POC background task cannot resume across
+processes.

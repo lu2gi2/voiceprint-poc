@@ -1,10 +1,15 @@
 import Dialog from './Dialog';
 import { Pencil } from './paper';
-import { NOTES } from '../data/fixtures';
 
 /** The torn-out sheet behind a sticky note: sub-scores plus the coach's line. */
-export default function NoteDetailDialog({ noteKey, onClose, onPractice }) {
-  const n = NOTES.find((x) => x.key === noteKey);
+export default function NoteDetailDialog({ noteKey, onClose, onPractice, dimensions = [] }) {
+  const dimension = dimensions.find((item) => item.name === noteKey);
+  const n = dimension && {
+    title: dimension.name.toUpperCase(),
+    pct: dimension.score,
+    rows: [[`${dimension.count} persisted answers`, dimension.score]],
+    note: `Calculated from ${dimension.count} answer score${dimension.count === 1 ? '' : 's'} stored in PostgreSQL.`,
+  };
 
   return (
     <Dialog open={!!n} onClose={onClose} labelledBy="dTitle">

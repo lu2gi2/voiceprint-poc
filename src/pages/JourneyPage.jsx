@@ -18,6 +18,7 @@ export default function JourneyPage({
   onOpenNote,
   onPractice,
   onOpenStats,
+  dashboard,
 }) {
   const trackRef = useRef(null);
   const stickRef = useRef(null);
@@ -44,7 +45,7 @@ export default function JourneyPage({
       />
 
       <main id="main">
-        <StudentIntro user={user} practiceCount={practiceCount} />
+        <StudentIntro user={user} practiceCount={practiceCount} dashboard={dashboard} />
 
         <Blackboard
           ref={trackRef}
@@ -53,10 +54,12 @@ export default function JourneyPage({
           graphRef={graphRef}
           listRef={listRef}
           onOpenStats={onOpenStats}
+          dimensions={dashboard?.dimensions || []}
+          growth={dashboard?.growth || []}
         />
 
-        <StickyWall ref={wallRef} onOpenNote={onOpenNote} />
-        <CoachingCue ref={coachRef} onPractice={onPractice} />
+        <StickyWall ref={wallRef} onOpenNote={onOpenNote} dimensions={dashboard?.dimensions || []} />
+        <CoachingCue ref={coachRef} onPractice={onPractice} focus={dashboard?.focus} />
         <RecentPractice items={recent} freshId={freshId} />
         <GrowthJourney />
       </main>

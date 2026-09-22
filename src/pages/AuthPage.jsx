@@ -37,7 +37,7 @@ function validate(mode, values) {
  * Nothing here authenticates — the POC has no backend. Any email and any
  * password get you in, and the board says so rather than pretending otherwise.
  */
-export default function AuthPage({ onAuthed }) {
+export default function AuthPage({ onAuthed, error }) {
   const [mode, setMode] = useState('signin');
   const [values, setValues] = useState({ name: '', email: '', password: '' });
   const [errors, setErrors] = useState({});
@@ -64,7 +64,7 @@ export default function AuthPage({ onAuthed }) {
       ? values.name.trim()
       : values.email.trim().split('@')[0].replace(/[._-]+/g, ' ');
     const display = name.charAt(0).toUpperCase() + name.slice(1);
-    onAuthed({ name: display, email: values.email.trim() });
+    onAuthed({ name: display, email: values.email.trim() }, mode);
   };
 
   return (
@@ -119,7 +119,9 @@ export default function AuthPage({ onAuthed }) {
                 <button type="button" className="auth-swap" onClick={swapMode}>{copy.swap}</button>
               </div>
 
-              <p className="auth-demo">Demo — no account is created and nothing is stored. Any email and any password will get you in.</p>
+              {error && <p className="auth-demo" role="alert">{error}</p>}
+
+              <p className="auth-demo">Your student profile is saved to the connected database. Password authentication is not enabled yet.</p>
             </form>
 
             <div className="dust" aria-hidden="true" />

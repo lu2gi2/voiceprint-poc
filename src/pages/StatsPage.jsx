@@ -4,27 +4,12 @@ import { useScrolled } from '../hooks/useReveal';
 import DimensionBoard from '../components/charts/DimensionBoard';
 import StarDropoff from '../components/charts/StarDropoff';
 import { diagnose, signed } from '../lib/viz';
-import {
-  student,
-  longitudinal,
-  evidence,
-  starStages,
-  coachingPlan,
-  BENCHMARK,
-} from '../data/fixtures';
-
-/* Worked out once. Every section reads from this, so nothing can disagree
-   with anything else — and each dimension's score is rendered in exactly one
-   place on the page. */
-const dims = diagnose(longitudinal.skills, BENCHMARK);   // weakest first
-const worst = dims[0];
-const best = dims[dims.length - 1];
-const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
-const behind = dims.filter((d) => !d.ahead).length;
+const BENCHMARK = 75;
 
 /* ---------- The board: where you stand, and how you got here ---------- */
 
-function StandingBoard() {
+function StandingBoard({ dims }) {
+  const behind = dims.filter((dimension) => !dimension.ahead).length;
   return (
     <section className="board-panel" aria-label="Where you stand">
       <div className="frame static">
@@ -58,7 +43,7 @@ function StandingBoard() {
 
 /* ---------- Evidence behind each score (PRD §7) ---------- */
 
-function EvidenceWall() {
+function EvidenceWall({ evidence }) {
   return (
     <>
       <div className="rail" aria-hidden="true" />
@@ -105,7 +90,7 @@ function EvidenceWall() {
 
 /* ---------- Measured signals, on ruled paper (PRD §6) ---------- */
 
-function AnswerShape() {
+function AnswerShape({ starStages }) {
   const drops = starStages.map(([, v], i) => (i === 0 ? 0 : v - starStages[i - 1][1]));
   const worstStep = Math.min(...drops);
   const at = starStages[drops.indexOf(worstStep)][0];
@@ -134,17 +119,27 @@ function AnswerShape() {
 
 /* ---------- The plan that follows from all of it (PRD §8) ---------- */
 
-function CoachingPlan({ onPractice }) {
+function CoachingPlan({ onPractice, weakness }) {
   return (
     <section className="plan" aria-labelledby="planH">
       <div className="plan-in">
         <div className="plan-head">
-          <h2 className="eyebrow" id="planH">YOUR PLAN — {coachingPlan.weakness.toUpperCase()}</h2>
-          <span>{coachingPlan.why}</span>
+            <h2 className="eyebrow" id="planH">YOUR PLAN — {weakness.toUpperCase()}</h2>
+          <span>Use your next persisted assessment to build a focused coaching plan.</span>
         </div>
 
         <div className="weeks">
-          {coachingPlan.weeks.map((w) => (
+          {[1, 2, 3].map((week) => {
+            const w = {
+              when: `NEXT ROUND ${week}`,
+              tag: week === 1 ? 'NEXT' : 'LATER',
+              done: false,
+              rot: week % 2 ? -0.7 : 0.8,
+              pin: '#C0483E',
+              do: `Practice ${weakness.toLowerCase()} in your next answer.`,
+              why: 'This recommendation is based on your stored assessment scores.',
+            };
+            return (
             <article key={w.when} className={`week${w.done ? ' done' : ''}`}
               style={{ '--rot': `${w.rot}deg` }}>
               <Pin color={w.pin} />
@@ -155,7 +150,8 @@ function CoachingPlan({ onPractice }) {
               </div>
               <span className="w-tag">{w.tag}</span>
             </article>
-          ))}
+            );
+          })}
         </div>
 
         <div className="cta-slip">
@@ -172,8 +168,39 @@ function CoachingPlan({ onPractice }) {
 
 /* ---------- Page ---------- */
 
-export default function StatsPage({ onBack, onPractice, practiceCount }) {
+export default function StatsPage({ onBack, onPractice, practiceCount, dashboard }) {
   const scrolled = useScrolled();
+  const skills = (dashboard?.dimensions || []).map((dimension) => ({
+    name: dimension.name,
+    scores: [dimension.score],
+  }));
+  const dims = diagnose(skills, BENCHMARK);
+  const worst = dims[0];
+  const best = dims[dims.length - 1];
+  const biggestGain = dims[0];
+  const behind = dims.filter((d) => !d.ahead).length;
+  const evidence = (dashboard?.dimensions || []).map((dimension) => {
+    const score = (dashboard?.scores || []).find((item) => item.dimension === dimension.name);
+    return {
+      key: dimension.name.toLowerCase(), title: dimension.name.toUpperCase(), score: dimension.score,
+      c: 'var(--b)', rot: 0, dy: 0,
+      measures: score?.evidence?.map((item) => [item.label, item.value]) || [],
+      fix: score?.recommendation || 'Complete more scored answers to receive evidence-based guidance.',
+    };
+  });
+  const starStages = [];
+
+  if (!dashboard || !dims.length) {
+    return (
+      <div className="stats">
+        <header className={`stats-bar${scrolled ? ' scrolled' : ''}`}>
+          <button className="back" type="button" onClick={onBack}><i>←</i> BACK TO MY JOURNEY</button>
+          <span className="who">{dashboard?.student?.name || 'Student'}</span>
+        </header>
+        <main id="main"><div className="stats-head"><p className="eyebrow">THE FULL REPORT</p><h1>Your report starts with your first completed assessment.</h1><p className="lede">Scores and evidence will appear here after the backend processes an uploaded answer.</p><button className="btn" type="button" onClick={onPractice}>START AN ASSESSMENT <i>→</i></button></div></main>
+      </div>
+    );
+  }
 
   return (
     <div className="stats">
@@ -181,7 +208,7 @@ export default function StatsPage({ onBack, onPractice, practiceCount }) {
         <button className="back" type="button" onClick={onBack}>
           <i>←</i> BACK TO MY JOURNEY
         </button>
-        <span className="who">{student.name} · {student.year}</span>
+        <span className="who">{dashboard.student.name} · {dashboard.student.email}</span>
       </header>
 
       <main id="main">
@@ -199,10 +226,10 @@ export default function StatsPage({ onBack, onPractice, practiceCount }) {
           </p>
         </div>
 
-        <StandingBoard />
-        <EvidenceWall />
-        <AnswerShape />
-        <CoachingPlan onPractice={onPractice} />
+        <StandingBoard dims={dims} />
+        <EvidenceWall evidence={evidence} />
+        {starStages.length > 0 && <AnswerShape starStages={starStages} />}
+        <CoachingPlan onPractice={onPractice} weakness={worst.name} />
       </main>
     </div>
   );

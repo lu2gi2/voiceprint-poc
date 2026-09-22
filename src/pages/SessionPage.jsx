@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import VoiceOrb from '../components/VoiceOrb';
 import SessionResults from '../components/SessionResults';
 import useAudioRecorder from '../hooks/useAudioRecorder';
-import { byId } from '../data/assessments';
 import { checkHealth, createSession, uploadAnswer, completeSession, pollSummary, pollAnswer, getSession } from '../lib/api';
 
 const fmt = (s) => {
@@ -17,8 +16,7 @@ const fmt = (s) => {
  * than cutting you off — going long is the thing being measured, so the
  * recording has to be allowed to run long enough to show it.
  */
-export default function SessionPage({ assessmentId, user, onExit, onDone, onComplete }) {
-  const assessment = byId(assessmentId);
+export default function SessionPage({ assessmentId, assessment, user, onExit, onDone, onComplete }) {
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [phase, setPhase] = useState('answering'); // answering | results

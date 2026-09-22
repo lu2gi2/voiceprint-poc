@@ -1,10 +1,9 @@
 import { forwardRef } from 'react';
 import { Pencil, Pin, Tape, Underline } from './paper';
 import { useInViewOnce } from '../hooks/useReveal';
-import { NOTES } from '../data/fixtures';
 
 /** The wall of skill notes. Each note opens its evidence in a dialog. */
-const StickyWall = forwardRef(function StickyWall({ onOpenNote }, ref) {
+const StickyWall = forwardRef(function StickyWall({ onOpenNote, dimensions = [] }, ref) {
   const inView = useInViewOnce(ref, 0.12);
 
   return (
@@ -21,7 +20,9 @@ const StickyWall = forwardRef(function StickyWall({ onOpenNote }, ref) {
           </div>
 
           <div className="notes">
-            {NOTES.map((n, i) => (
+            {dimensions.map((dimension, i) => {
+              const n = { key: dimension.name, title: dimension.name.toUpperCase(), sub: `${dimension.count} scored answers`, pct: dimension.score, c: ['var(--y)', 'var(--p)', 'var(--b)', 'var(--g)'][i % 4], rot: [-2.4, 1.8, -1.2, 2.2][i % 4], dy: [0, 28, -6, 6][i % 4], pin: '#C0483E', tip: 'from persisted answers' };
+              return (
               <button
                 key={n.key}
                 type="button"
@@ -43,7 +44,8 @@ const StickyWall = forwardRef(function StickyWall({ onOpenNote }, ref) {
                   VIEW <i>→</i>
                 </span>
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

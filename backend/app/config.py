@@ -12,10 +12,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # SQLite by default so `uvicorn app.main:app` just runs. docker-compose.yml
-    # brings up the Postgres the PRD actually targets; point DATABASE_URL at it
-    # to switch. The models are plain SQLAlchemy, so nothing else changes.
-    database_url: str = f"sqlite:///{BACKEND_DIR / 'voiceprint.db'}"
+    # PostgreSQL is the deployment default. SQLite remains available for local
+    # work by explicitly setting DATABASE_URL=sqlite:///voiceprint.db.
+    database_url: str = "postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint"
 
     # Raw audio lives on disk behind a storage interface (see storage.py) so
     # swapping in S3 later is one class, not a refactor.
