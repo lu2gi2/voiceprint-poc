@@ -49,6 +49,16 @@ NEGATIVE_SIGNALS = [
 ]
 
 
+def redact_contact_info(text: str) -> str:
+    """Strip email/phone before any resume text leaves the machine (the
+    DeepSeek calls). Name and address are not caught here — no reliable
+    regex for either without risking stripping real resume content — but
+    the two structured, high-confidence PII fields are."""
+    text = EMAIL_RE.sub("[redacted email]", text)
+    text = PHONE_RE.sub("[redacted phone]", text)
+    return text
+
+
 @dataclass
 class HeuristicResult:
     passed: bool

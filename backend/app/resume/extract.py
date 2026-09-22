@@ -7,11 +7,25 @@ caller treats as "reject, ask for a text-based file" rather than reaching for
 OCR or a vision model — see the discussion on issue #4.
 """
 
+import re
 from pathlib import Path
 
 
 class ExtractError(RuntimeError):
     pass
+
+
+def _unmerge_words(text: str) -> str:
+    """Some PDF fonts/kerning setups omit the actual space glyph between
+    visually-spaced words, so pdfplumber pulls out "TechnicalSkills" as one
+    token instead of two. That breaks header/word-boundary matching for
+    anything downstream (the heuristic, word counts). Inserting a space at
+    lowercase->uppercase and letter->digit boundaries un-merges the common
+    case cheaply; it is a no-op on text that already has real spaces, since
+    the pattern only fires where none exist."""
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
+    text = re.sub(r"(?<=[a-zA-Z])(?=[0-9])", " ", text)
+    return text
 
 
 def _extract_pdf(path: Path) -> str:
@@ -55,6 +69,7 @@ def extract_text(path: Path) -> str:
     if extractor is None:
         raise ExtractError(f"unsupported file type: {suffix or '(none)'}")
     try:
-        return extractor(path).strip()
+        text = extractor(path).strip()
     except Exception as exc:  # noqa: BLE001 — any parser failure means "couldn't read this file"
         raise ExtractError(f"could not read {suffix} file: {exc}") from exc
+    return _unmerge_words(text)
