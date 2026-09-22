@@ -41,19 +41,16 @@ def _suffix(mime: str) -> str:
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
 def create_session(payload: SessionCreate, db: DbSession = Depends(get_db)) -> InterviewSession:
-    """Open a session. The student is upserted on email — v1 has no real auth,
-    so this is identity by assertion, and deliberately the only place that
-    assumption lives."""
-    student = db.query(Student).filter(Student.email == payload.student.email).one_or_none()
-    if student is None:
-        student = Student(email=payload.student.email, name=payload.student.name)
-        db.add(student)
-        db.flush()
-    elif student.name != payload.student.name:
-        student.name = payload.student.name
+    """Open a session for an already-registered, already-authenticated
+    student (see api/auth.py). Used to upsert a Student from whatever name/
+    email the request body claimed - identity by assertion, no password
+    involved - now that real accounts exist, session creation trusts
+    student_id instead."""
+    if db.get(Student, payload.student_id) is None:
+        raise HTTPException(404, "student not found")
 
     session = InterviewSession(
-        student_id=student.id,
+        student_id=payload.student_id,
         assessment_id=payload.assessment_id,
         assessment_title=payload.assessment_title,
     )

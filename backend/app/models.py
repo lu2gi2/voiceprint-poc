@@ -12,20 +12,62 @@ def _now() -> datetime:
 
 
 class Student(Base):
-    """Minimal for v1 — the front end's auth does not authenticate anything
-    yet, so this exists to hang sessions off and to make the longitudinal
-    profile (PRD §9) possible later without a migration."""
+    """Real account now — password_hash replaces the frontend's old
+    DEMO_PASSWORD-in-the-bundle scheme (see auth.py). roll_number is the
+    login identifier AuthPage.jsx already asks for; email stays because
+    create_session's upsert-by-email flow depends on it."""
 
     __tablename__ = "students"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    roll_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
+    password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     sessions: Mapped[list["InterviewSession"]] = relationship(
         back_populates="student", cascade="all, delete-orphan"
     )
+    dimension_scores: Mapped[list["StudentDimensionScore"]] = relationship(
+        back_populates="student", cascade="all, delete-orphan", order_by="StudentDimensionScore.created_at"
+    )
+
+
+class Admin(Base):
+    """Staff account for the placement-cell portal. One row for now (see
+    AuthPage.jsx's ADMIN_COPY - "Admin accounts are issued, not
+    self-served") - the model exists so login is real, not the 1240-student
+    roster/department-stats rework, which is separate, larger work."""
+
+    __tablename__ = "admins"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StudentDimensionScore(Base):
+    """One row per dimension judged in one session's report - the real
+    longitudinal history behind StatsPage's user.history, which today is
+    entirely fixture data (src/data/students.js). Written once, from
+    update_student_score() right after a session's report goes ready
+    (resume/pipeline.py); Fluency/Conciseness never land here since those
+    are deterministic and already live on Answer, not part of the LLM
+    report this hangs off of."""
+
+    __tablename__ = "student_dimension_scores"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), index=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    dimension: Mapped[str] = mapped_column(String(80), index=True)
+    value: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+    student: Mapped[Student] = relationship(back_populates="dimension_scores")
 
 
 class InterviewSession(Base):

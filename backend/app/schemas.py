@@ -1,16 +1,50 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
 
-class StudentIn(BaseModel):
+class StudentRegister(BaseModel):
+    roll_number: str = Field(min_length=1, max_length=32)
     email: str = Field(min_length=1, max_length=320)
     name: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=8, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    role: Literal["student", "admin"]
+    username: str = Field(min_length=1, max_length=320)  # roll_number for a student, username for an admin
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AccountOut(BaseModel):
+    """One shape for both roles - unused identity fields are null rather
+    than modeling two response types the frontend would have to branch on."""
+
+    id: int
+    role: Literal["student", "admin"]
+    name: str
+    roll_number: str | None = None
+    email: str | None = None
+    username: str | None = None
+
+
+class DimensionScoreOut(BaseModel):
+    dimension: str
+    value: int
+    session_id: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class StudentHistoryOut(BaseModel):
+    student_id: int
+    scores: list[DimensionScoreOut]
 
 
 class SessionCreate(BaseModel):
-    student: StudentIn
+    student_id: int
     assessment_id: str = Field(min_length=1, max_length=64)
     assessment_title: str = Field(min_length=1, max_length=160)
 

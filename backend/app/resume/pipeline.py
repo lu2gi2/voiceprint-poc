@@ -9,10 +9,12 @@ rather than an ORM object for the same reason.
 import io
 import logging
 
+from sqlalchemy.orm import Session as DbSession
+
 from ..db import SessionLocal
 from ..llm import DeepSeekError, generate_next_question, generate_report
 from ..llm.tracks import TRACKS
-from ..models import Answer, InterviewSession, Resume, SessionQuestion
+from ..models import Answer, InterviewSession, Resume, SessionQuestion, StudentDimensionScore
 from ..storage import audio_store
 from ..tts import synthesize_wav_bytes
 from .heuristic import redact_contact_info
@@ -25,20 +27,24 @@ log = logging.getLogger(__name__)
 MAX_QUESTIONS = 6
 
 
-def update_student_score(session: InterviewSession, dimensions: list[dict]) -> None:
-    """Hook point for the longitudinal per-student score store.
-
-    That store is planned as a separate Postgres-backed service, not yet
-    built - this call is the seam it will plug into once it exists (fired
-    right after a session's report is ready, with the student id and this
-    session's judged dimensions). No-op for now besides logging.
+def update_student_score(db: DbSession, session: InterviewSession, dimensions: list[dict]) -> None:
+    """Writes this session's judged dimensions into the student's
+    longitudinal history (StudentDimensionScore) - one row per dimension,
+    fired right after a session's report is ready. This is the real store
+    GET /students/{id}/history reads from; StatsPage.jsx's user.history is
+    still fixture data on the frontend until that gets wired up separately.
     """
-    log.info(
-        "student %s: score-update hook fired for session %s (%d dimensions, not yet wired to a store)",
-        session.student_id,
-        session.id,
-        len(dimensions),
+    db.add_all(
+        StudentDimensionScore(
+            student_id=session.student_id,
+            session_id=session.id,
+            dimension=d["dimension"],
+            value=d["value"],
+        )
+        for d in dimensions
     )
+    db.commit()
+    log.info("student %s: %d dimension scores recorded for session %s", session.student_id, len(dimensions), session.id)
 
 
 def process_resume(resume_id: int) -> None:
@@ -250,7 +256,7 @@ def generate_session_report(session_id: int) -> None:
         db.commit()
         log.info("session %s: report generated, %d dimensions", session_id, len(dimensions))
 
-        update_student_score(session, dimensions)
+        update_student_score(db, session, dimensions)
 
     except Exception:  # noqa: BLE001 — a bad report must not kill the worker
         log.exception("report generation crashed for session %s", session_id)

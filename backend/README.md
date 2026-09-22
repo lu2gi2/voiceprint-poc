@@ -17,18 +17,33 @@ Needs `ffmpeg` on PATH. First request downloads the Whisper model (~150 MB),
 so it is slow once and fast after.
 
 Defaults to SQLite, so there is nothing to set up. For the Postgres the PRD
-targets: `docker compose up -d`, then set
-`DATABASE_URL=postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint`.
+targets:
+
+```bash
+docker compose up -d          # local Postgres
+# in backend/.env: DATABASE_URL=postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint
+.venv/bin/alembic upgrade head
+.venv/bin/python seed_demo_data.py   # optional - a handful of demo accounts, password "voiceprint"
+```
+
+SQLite still auto-creates its schema on boot (`app.db.init_db`) — the whole
+point of defaulting to it is no setup ritual. Postgres is migration-managed
+(`backend/alembic`); `init_db` only checks the schema exists there and warns
+if `alembic upgrade head` hasn't been run, rather than silently creating it
+and drifting out of sync with the migration history.
 
 ## API
 
 | | |
 | --- | --- |
-| `POST /api/sessions` | open a session |
+| `POST /api/auth/register` | create a student account |
+| `POST /api/auth/login` | student or admin login |
+| `POST /api/sessions` | open a session for an already-authenticated student |
 | `POST /api/sessions/{id}/answers` | upload one answer (multipart) → `202` |
 | `GET /api/sessions/{id}` | full session, per-answer transcript + measurements |
 | `GET /api/sessions/{id}/summary` | per-dimension rollup, weakest first |
-| `POST /api/sessions/{id}/complete` | mark finished |
+| `POST /api/sessions/{id}/complete` | mark finished, kicks off the report for resume-driven/fixed-script tracks that have one |
+| `GET /api/students/{id}/history` | a student's real per-dimension score history across sessions |
 | `GET /api/health` | also what the front end pings to decide live-vs-fixtures |
 
 Upload returns `202` because transcription takes seconds to tens of seconds.
@@ -50,12 +65,17 @@ far more reliable than hunting for silence in the waveform.
 
 ## What it scores, and what it refuses to
 
-**Fluency** and **Conciseness** only. Both are computable from measurements.
+**Fluency** and **Conciseness**, rule-based from measurements, on every
+answer regardless of track.
 
-Clarity, Structure and Vocabulary are judgements about *content* and need an
-LLM reading the transcript. They are **absent rather than faked** — inventing
-rule-based numbers for them is exactly the dishonesty PRD §7 forbids. The
-front end keeps showing fixture data for those until the LLM stage lands.
+Clarity, Structure, Vocabulary and the rest are judgements about *content*
+and need an LLM reading the transcript — inventing rule-based numbers for
+them is exactly the dishonesty PRD §7 forbids. These now come from a real
+DeepSeek report (`app/llm`), track-aware (`app/llm/tracks.py`): each
+assessment track defines its own dimensions and what a genuine follow-up or
+correction looks like, not one hardcoded prompt. Absent rather than faked
+for any track with nothing configured (Impromptu Speaking, by design — its
+own `measures` in `assessments.js` are rule-based only).
 
 ## Where it admits it might be wrong
 
@@ -78,6 +98,11 @@ them as fillers would manufacture evidence the audio does not support.
 
 ## Not done yet
 
-No auth — `POST /sessions` trusts the email it is handed. No LLM stage. No
-longitudinal profile across sessions. Audio retention is implemented
-(`storage.purge_older_than`) but nothing calls it on a schedule.
+The 1240-student admin roster and department stats
+(`src/data/students.js`/`admin.js`) are still 100% frontend fixture data —
+never touches this DB. `StatsPage.jsx`'s dimension history is real data now
+on the backend (`GET /students/{id}/history`) but the frontend hasn't been
+switched over to read it yet. Login issues no token/session — the frontend
+still needs to actually call `/api/auth/*` and hold onto the result. Audio
+retention is implemented (`storage.purge_older_than`) but nothing calls it
+on a schedule.
