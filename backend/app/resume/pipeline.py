@@ -129,7 +129,13 @@ def maybe_continue_interview(answer_id: int) -> None:
         if result.get("correction"):
             answer.llm_note = result["correction"]
 
-        wav_bytes = synthesize_wav_bytes(result["question"])
+        # The transition ("Got it.", "Interesting approach.") is spoken but
+        # not stored as part of the question text - future history/context
+        # should see only the actual question that was asked, not the
+        # acknowledgment wrapped around it.
+        transition = result.get("transition") or ""
+        spoken = f"{transition} {result['question']}".strip()
+        wav_bytes = synthesize_wav_bytes(spoken)
         audio_key = audio_store.put(io.BytesIO(wav_bytes), suffix=".wav")
         db.add(SessionQuestion(
             session_id=answer.session_id,

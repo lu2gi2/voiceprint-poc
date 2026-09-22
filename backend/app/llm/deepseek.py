@@ -48,14 +48,29 @@ vague to the point of not really answering, or worth flagging - otherwise
 null. This is never shown to the candidate during the interview, only used
 in the final report, so be direct and specific rather than encouraging.
 
-Then write the next question. It should follow naturally from what has been
-discussed - either go deeper on something just mentioned, or move to a
-different concrete part of the resume not yet covered. Reference something
-specific (a named project, technology, or role), never a generic prompt.
-Give it a target_seconds between 60 and 150.
+Then decide whether to go deeper on the current topic or move to a new one.
+Default to going deeper - a real interviewer spends several questions on
+the same project before moving on, not one question per resume line. Only
+move to a different, not-yet-covered part of the resume once the current
+topic has had at least two substantive exchanges, or the candidate's last
+answer was a non-answer/evasive dodge that leaves nothing to dig into.
+
+When going deeper, make the question a genuine escalation, not a rephrase -
+ask about a trade-off they made, a failure mode or edge case, what they
+would change if a requirement shifted, or push back directly on a claim
+("what if that library did not exist"). When moving on, reference something
+specific and concrete (a named project, technology, or role), never a
+generic prompt. Either way, give it a target_seconds between 60 and 150.
+
+Finally, in "transition", write a short (one clause to one sentence)
+natural spoken acknowledgment of the candidate's last answer, the way an
+interviewer would react before asking the next thing - e.g. "Got it.",
+"That makes sense.", "Interesting approach." Keep it brief and neutral, not
+effusive praise, and make it fit naturally before the question when spoken
+aloud together.
 
 Respond with strict JSON only, no other text, matching exactly this shape:
-{{"correction": "..." or null, "question": "...", "target_seconds": 90}}
+{{"correction": "..." or null, "transition": "...", "question": "...", "target_seconds": 90}}
 """
 
 
