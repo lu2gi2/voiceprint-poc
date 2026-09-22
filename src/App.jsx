@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import AuthPage from './pages/AuthPage';
+import AdminPage from './pages/AdminPage';
 import JourneyPage from './pages/JourneyPage';
 import AssessmentsPage from './pages/AssessmentsPage';
 import SessionPage from './pages/SessionPage';
@@ -15,6 +16,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
+
+  // Adopt the signed-in student's own session count once they arrive.
+  useEffect(() => { if (user?.sessions != null) setPracticeCount(user.sessions); }, [user]);
   const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));
   const [freshId, setFreshId] = useState(null);
 
@@ -98,6 +102,11 @@ export default function App() {
   // front door of the demo, not a security boundary.
   if (!user) return <AuthPage onAuthed={setUser} />;
 
+  // Staff get the college view; students get their own journey. Role comes
+  // from the sign-in switch — v1 has nothing to authenticate against, so this
+  // is a demo affordance, not access control.
+  if (user.role === 'admin') return <AdminPage user={user} onSignOut={signOut} />;
+
   return (
     <>
       {view === 'assessments' && (
@@ -135,6 +144,7 @@ export default function App() {
           onBack={() => setView('journey')}
           onPractice={openPractice}
           practiceCount={practiceCount}
+          user={user}
         />
       )}
 

@@ -47,7 +47,7 @@ function Checklist() {
  * full stats page.
  */
 const Blackboard = forwardRef(function Blackboard(
-  { stickRef, frameRef, graphRef, listRef, onOpenStats },
+  { stickRef, frameRef, graphRef, listRef, onOpenStats, user },
   trackRef,
 ) {
   return (
@@ -75,7 +75,7 @@ const Blackboard = forwardRef(function Blackboard(
                   <span className="g-sub">LAST 6 PRACTICES</span>
                 </div>
                 <div className="g-svg">
-                  <GrowthGraph />
+                  <GrowthGraph user={user} />
                 </div>
                 <p className="g-axis rv" data-ch="g" data-a=".85" data-b="1" style={{ '--r': 0 }}>
                   steadier → clearer → more confident
