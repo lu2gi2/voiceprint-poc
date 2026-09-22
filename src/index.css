@@ -349,6 +349,11 @@ dialog[open]{animation:pick .35s cubic-bezier(.2,.9,.3,1.1)}
 /* page shell */
 .stats{min-height:100vh;background:var(--paper);animation:statsIn .5s cubic-bezier(.2,.9,.3,1) backwards}
 @keyframes statsIn{from{opacity:0;transform:translateY(18px)}}
+
+/* Right after sign-in/registration (App.jsx's justAuthed) - not replayed on
+   a page refresh, since that mounts straight from the stored session. */
+.page-enter{animation:pageEnter .45s cubic-bezier(.2,.9,.3,1) backwards}
+@keyframes pageEnter{from{opacity:0;transform:translateY(14px)}}
 .stats-bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--paper);height:var(--nav-h);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 clamp(18px,4vw,56px);transition:box-shadow .3s}
 .stats-bar.scrolled{box-shadow:0 1px 0 var(--rule)}
 .back{appearance:none;border:0;background:transparent;display:inline-flex;align-items:center;gap:10px;padding:8px 0;font:700 12px var(--sans);letter-spacing:.14em;color:var(--ink);position:relative}

@@ -52,8 +52,24 @@ const overallFromHistory = (history) => {
   return latest.length ? Math.round(latest.reduce((a, v) => a + v, 0) / latest.length) : null;
 };
 
+const SESSION_KEY = 'voiceprint_session';
+
+const loadStoredUser = () => {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
-  const [user, setUser] = useState(null);
+  // Persisted across reloads - only signing out clears it. The hydration
+  // effect below re-fetches this student's real data fresh on every mount
+  // regardless, so a stale cached history/recent list here is never shown
+  // for more than a frame.
+  const [user, setUser] = useState(loadStoredUser);
+  const [justAuthed, setJustAuthed] = useState(false);
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
 
@@ -111,8 +127,28 @@ export default function App() {
   const nextId = useRef(0);
   const returnScroll = useRef(0);
 
+  // Keep the stored session in sync with whatever's signed in - including
+  // the hydration effect's later updates (real history/profile), so a
+  // refresh right after login still has the latest fetch, not just the
+  // bare account onAuthed first produced.
+  useEffect(() => {
+    try {
+      if (user) localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+      else localStorage.removeItem(SESSION_KEY);
+    } catch {
+      // storage unavailable (private mode, quota) - session just won't
+      // survive a refresh; nothing else depends on this.
+    }
+  }, [user]);
+
+  const handleAuthed = (account) => {
+    setUser(account);
+    setJustAuthed(true);
+  };
+
   const signOut = () => {
     setUser(null);
+    setJustAuthed(false);
     setView('journey');
   };
 
@@ -178,17 +214,22 @@ export default function App() {
     );
   };
 
-  // Nothing is gated for real — there is no backend. The auth page is the
-  // front door of the demo, not a security boundary.
-  if (!user) return <AuthPage onAuthed={setUser} />;
+  // Real auth now (see AuthPage.jsx / api/auth.py) - the auth page is a
+  // real front door, not just a demo affordance.
+  if (!user) return <AuthPage onAuthed={handleAuthed} />;
 
   // Staff get the college view; students get their own journey. Role comes
-  // from the sign-in switch — v1 has nothing to authenticate against, so this
-  // is a demo affordance, not access control.
-  if (user.role === 'admin') return <AdminPage user={user} onSignOut={signOut} />;
+  // from the account the backend returned at login.
+  if (user.role === 'admin') {
+    return (
+      <div className={justAuthed ? 'page-enter' : undefined}>
+        <AdminPage user={user} onSignOut={signOut} />
+      </div>
+    );
+  }
 
   return (
-    <>
+    <div className={justAuthed ? 'page-enter' : undefined}>
       {view === 'assessments' && (
         <AssessmentsPage
           onBack={() => setView('journey')}
@@ -260,6 +301,6 @@ export default function App() {
         onClose={() => setPracticeOpen(false)}
         onFinish={finishPractice}
       />
-    </>
+    </div>
   );
 }
