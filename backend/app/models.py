@@ -48,6 +48,9 @@ class InterviewSession(Base):
     questions: Mapped[list["SessionQuestion"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="SessionQuestion.question_index"
     )
+    resume: Mapped["Resume | None"] = relationship(
+        back_populates="session", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class SessionQuestion(Base):
@@ -76,6 +79,34 @@ class SessionQuestion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     session: Mapped[InterviewSession] = relationship(back_populates="questions")
+
+
+class Resume(Base):
+    """One uploaded resume, and what the local checks made of it.
+
+    The original file is never persisted — it is parsed on upload and
+    discarded (see the API layer); only the extracted text sticks around,
+    since that is what the question-generation call needs later. status is
+    'rejected' the moment either local check (extraction, heuristic) fails,
+    or 'validated' once both pass — 'validated' does not yet mean a question
+    list exists, that is the DeepSeek call this table is staged for.
+    """
+
+    __tablename__ = "resumes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), unique=True, index=True)
+
+    original_filename: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(24), default="rejected")  # rejected | validated
+    reject_reason: Mapped[str | None] = mapped_column(Text, default=None)
+
+    extracted_text: Mapped[str | None] = mapped_column(Text, default=None)
+    heuristic_score: Mapped[int | None] = mapped_column(Integer, default=None)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    session: Mapped[InterviewSession] = relationship(back_populates="resume")
 
 
 class Answer(Base):

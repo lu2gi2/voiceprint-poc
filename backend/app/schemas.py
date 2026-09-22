@@ -41,6 +41,14 @@ class SessionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ResumeOut(BaseModel):
+    status: str
+    reject_reason: str | None = None
+    heuristic_score: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class SessionSummary(BaseModel):
     """Session-level rollup: the per-dimension average across answers that
     finished, plus what is still being worked on."""
