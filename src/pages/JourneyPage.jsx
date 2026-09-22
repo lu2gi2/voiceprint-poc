@@ -54,6 +54,7 @@ export default function JourneyPage({
           graphRef={graphRef}
           listRef={listRef}
           onOpenStats={onOpenStats}
+          user={user}
         />
 
         <StickyWall ref={wallRef} onOpenNote={onOpenNote} />
