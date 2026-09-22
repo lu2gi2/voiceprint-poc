@@ -63,6 +63,26 @@ const loadStoredUser = () => {
   }
 };
 
+/** The sign-in -> dashboard transition: an eraser sweeps the board clean,
+ *  chalk dust kicking up as it passes, revealing the real page underneath
+ *  (see .board-wipe/.wipe-eraser/.wipe-motes in index.css). Motes are
+ *  staggered along the eraser's actual travel path so the dust puffs up
+ *  roughly where the eraser is at that moment, not at a fixed spot. */
+const WIPE_MOTES = [8, 24, 40, 56, 72, 88];
+function BoardWipe() {
+  return (
+    <>
+      <div className="board-wipe" aria-hidden="true" />
+      <div className="wipe-motes" aria-hidden="true">
+        {WIPE_MOTES.map((pct, i) => (
+          <i key={pct} style={{ left: `${pct}%`, animationDelay: `${0.05 + i * 0.15}s` }} />
+        ))}
+      </div>
+      <div className="wipe-eraser" aria-hidden="true" />
+    </>
+  );
+}
+
 export default function App() {
   // Persisted across reloads - only signing out clears it. The hydration
   // effect below re-fetches this student's real data fresh on every mount
@@ -70,6 +90,7 @@ export default function App() {
   // for more than a frame.
   const [user, setUser] = useState(loadStoredUser);
   const [justAuthed, setJustAuthed] = useState(false);
+  const [showWipe, setShowWipe] = useState(false); // the eraser-wipe transition overlay
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
 
@@ -144,11 +165,17 @@ export default function App() {
   const handleAuthed = (account) => {
     setUser(account);
     setJustAuthed(true);
+    setShowWipe(true);
+    // Matches the wipe/eraser animation's duration (index.css) - unmounts
+    // the overlay once it's done rather than leaving it sitting at its
+    // final (fully clipped, invisible) frame forever.
+    window.setTimeout(() => setShowWipe(false), 950);
   };
 
   const signOut = () => {
     setUser(null);
     setJustAuthed(false);
+    setShowWipe(false);
     setView('journey');
   };
 
@@ -222,14 +249,19 @@ export default function App() {
   // from the account the backend returned at login.
   if (user.role === 'admin') {
     return (
-      <div className={justAuthed ? 'page-enter' : undefined}>
-        <AdminPage user={user} onSignOut={signOut} />
-      </div>
+      <>
+        {showWipe && <BoardWipe />}
+        <div className={justAuthed ? 'page-enter' : undefined}>
+          <AdminPage user={user} onSignOut={signOut} />
+        </div>
+      </>
     );
   }
 
   return (
-    <div className={justAuthed ? 'page-enter' : undefined}>
+    <>
+      {showWipe && <BoardWipe />}
+      <div className={justAuthed ? 'page-enter' : undefined}>
       {view === 'assessments' && (
         <AssessmentsPage
           onBack={() => setView('journey')}
@@ -301,6 +333,7 @@ export default function App() {
         onClose={() => setPracticeOpen(false)}
         onFinish={finishPractice}
       />
-    </div>
+      </div>
+    </>
   );
 }
