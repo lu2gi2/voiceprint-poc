@@ -21,13 +21,16 @@ const fade = (a, b, ch = 'g', extra = '') => ({
 });
 
 /** The student's own overall trajectory — the mean of their dimension
- *  histories — falling back to the sample roll when nobody is signed in.
+ *  histories — falling back to the sample roll only while we genuinely
+ *  don't know yet (fetch not resolved, backend unreachable). A dataLoaded
+ *  account with nothing to show gets a real empty result {data:[]}, never
+ *  the sample cohort's numbers.
  *  Exported so the caption above the graph can count the same points it draws
  *  rather than asserting a number of its own. */
 export function trajectory(user) {
-  if (!user?.history) return growth;
+  if (!user?.dataLoaded) return growth;
   const dims = Object.values(user.history).filter((h) => h.length > 0);
-  if (!dims.length) return growth;
+  if (!dims.length) return { data: [], labels: [] };
   // Real dimensions get scored on different tracks at different times, so
   // their histories are not guaranteed the same length the fixture's were —
   // average only over the dimensions that actually have a value at each
@@ -52,6 +55,14 @@ export default function GrowthGraph({ user }) {
   const B = m ? 46 : 48;
 
   const { data, labels } = trajectory(user);
+
+  if (data.length === 0) {
+    return (
+      <div className="g-empty">
+        <p>No practice recorded yet. Complete an interview to start your growth line.</p>
+      </div>
+    );
+  }
 
   // Seeded so the wobble is identical on every render at a given breakpoint.
   // The call ORDER below must not change or the strokes shift.

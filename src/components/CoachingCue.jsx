@@ -14,7 +14,11 @@ function Circled({ children }) {
   );
 }
 
-const CoachingCue = forwardRef(function CoachingCue({ onPractice }, ref) {
+const CoachingCue = forwardRef(function CoachingCue({ user, onPractice }, ref) {
+  // A dataLoaded account with no real history yet must not see the sample
+  // cue dressed up as feedback on answers it never gave.
+  const isEmpty = user?.dataLoaded && Object.keys(user.history || {}).length === 0;
+
   return (
     <section className="coach" id="practice" ref={ref} aria-label="Next coaching cue">
       <div className="coach-in">
@@ -27,27 +31,37 @@ const CoachingCue = forwardRef(function CoachingCue({ onPractice }, ref) {
           </div>
 
           <p className="eyebrow">NEXT COACHING CUE</p>
-          <blockquote>
-            “Your ideas are strong.
-            <br />
-            Now make them easier to follow.”
-          </blockquote>
+          {isEmpty ? (
+            <blockquote>
+              “Take your first interview,
+              <br />
+              and your next cue lands here.”
+            </blockquote>
+          ) : (
+            <blockquote>
+              “Your ideas are strong.
+              <br />
+              Now make them easier to follow.”
+            </blockquote>
+          )}
 
-          <dl className="cue">
-            <div>
-              <dt>Focus:</dt>
-              <dd>
-                <Circled>{coachingPlan.weakness}</Circled>
-              </dd>
-            </div>
-            <div>
-              <dt>Practice:</dt>
-              <dd>Answer the next interview question in 45 seconds.</dd>
-            </div>
-          </dl>
+          {!isEmpty && (
+            <dl className="cue">
+              <div>
+                <dt>Focus:</dt>
+                <dd>
+                  <Circled>{coachingPlan.weakness}</Circled>
+                </dd>
+              </div>
+              <div>
+                <dt>Practice:</dt>
+                <dd>Answer the next interview question in 45 seconds.</dd>
+              </div>
+            </dl>
+          )}
 
           <button className="btn" type="button" onClick={onPractice}>
-            PRACTICE NOW <i>→</i>
+            {isEmpty ? 'START PRACTICING' : 'PRACTICE NOW'} <i>→</i>
           </button>
 
           <span className="margin-note" aria-hidden="true">three sentences is enough</span>

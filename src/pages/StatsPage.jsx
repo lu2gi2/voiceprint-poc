@@ -14,12 +14,14 @@ import {
   BENCHMARK,
 } from '../data/fixtures';
 
-/* The signed-in student's own dimensions, or the sample roll when there is no
-   session. Worked out once and shared, so no two sections can disagree — and
-   each score is rendered in exactly one place on the page. */
+/* The signed-in student's own dimensions - real, even when that means
+   genuinely empty for a brand-new account (see App.jsx's dataLoaded) - or
+   the sample roll only while we still don't know either way (fetch hasn't
+   resolved, or the backend is unreachable). A fresh account must never see
+   the sample cohort's numbers presented as its own. */
 function skillsFor(user) {
-  if (!user?.history) return longitudinal.skills;
-  return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+  if (user?.dataLoaded) return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+  return longitudinal.skills;
 }
 
 const EV_COLORS = ['var(--y)', 'var(--b)', 'var(--g)', 'var(--p)', 'var(--l)'];
@@ -40,9 +42,10 @@ function useRealEvidence(user) {
       try {
         const sessions = await getStudentSessions(user.id, { limit: 5 });
         const latestComplete = sessions.find((s) => s.status === 'complete');
-        if (!latestComplete) return;
+        if (!latestComplete) { if (!cancelled) setReal([]); return; }
         const summary = await getSummary(latestComplete.id);
-        if (cancelled || !summary.dimensions?.length) return;
+        if (cancelled) return;
+        if (!summary.dimensions?.length) { setReal([]); return; }
         setReal(summary.dimensions.map((d, i) => ({
           key: d.dimension.toLowerCase().replace(/\s+/g, '-'),
           title: d.dimension.toUpperCase(),
@@ -216,10 +219,12 @@ function CoachingPlan({ onPractice, worst }) {
 export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
   const scrolled = useScrolled();
   const realEvidence = useRealEvidence(user);
-  const dims = diagnose(skillsFor(user), BENCHMARK);   // weakest first
+  const skills = skillsFor(user);
+  const isEmpty = user?.dataLoaded && skills.length === 0;
+  const dims = isEmpty ? [] : diagnose(skills, BENCHMARK);   // weakest first
   const worst = dims[0];
   const best = dims[dims.length - 1];
-  const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
+  const biggestGain = isEmpty ? null : dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
   const behind = dims.filter((d) => !d.ahead).length;
 
   return (
@@ -232,24 +237,44 @@ export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
       </header>
 
       <main id="main">
-        <div className="stats-head">
-          <p className="eyebrow">THE FULL REPORT</p>
-          <h1>
-            Strongest at {best.name.toLowerCase()}. Weakest at {worst.name.toLowerCase()}.
-            <Underline stroke="#C0483E" />
-          </h1>
-          <p className="lede">
-            Pulled from {practiceCount} assessments. {best.name} has cleared the target;
-            {' '}{worst.name.toLowerCase()} is {Math.abs(worst.gap)} points short and is what
-            the plan below plays for. Biggest mover so far: {biggestGain.name}{' '}
-            {signed(biggestGain.delta)}.
-          </p>
-        </div>
+        {isEmpty ? (
+          <div className="stats-head">
+            <p className="eyebrow">THE FULL REPORT</p>
+            <h1>
+              Nothing measured yet.
+              <Underline stroke="#C0483E" />
+            </h1>
+            <p className="lede">
+              Take an HR or Technical interview first — this page fills in with your own
+              dimensions, evidence and a plan built from what you actually said, once there's
+              a real round on record. Nothing here is a sample.
+            </p>
+            <button className="chalk-btn" type="button" onClick={onPractice} style={{ marginTop: '1.5rem' }}>
+              START YOUR FIRST INTERVIEW <i>→</i>
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="stats-head">
+              <p className="eyebrow">THE FULL REPORT</p>
+              <h1>
+                Strongest at {best.name.toLowerCase()}. Weakest at {worst.name.toLowerCase()}.
+                <Underline stroke="#C0483E" />
+              </h1>
+              <p className="lede">
+                Pulled from {practiceCount} assessments. {best.name} has cleared the target;
+                {' '}{worst.name.toLowerCase()} is {Math.abs(worst.gap)} points short and is what
+                the plan below plays for. Biggest mover so far: {biggestGain.name}{' '}
+                {signed(biggestGain.delta)}.
+              </p>
+            </div>
 
-        <StandingBoard dims={dims} behind={behind} />
-        <EvidenceWall items={realEvidence || evidence} />
-        <AnswerShape />
-        <CoachingPlan onPractice={onPractice} worst={worst} />
+            <StandingBoard dims={dims} behind={behind} />
+            <EvidenceWall items={user?.dataLoaded ? (realEvidence || []) : evidence} />
+            <AnswerShape />
+            <CoachingPlan onPractice={onPractice} worst={worst} />
+          </>
+        )}
       </main>
     </div>
   );

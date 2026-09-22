@@ -63,10 +63,13 @@ export default function App() {
   const [freshId, setFreshId] = useState(null);
 
   // Once a student is signed in, replace the fixture profile/journey/stats
-  // data with what the backend actually has for them - a fresh account with
-  // no sessions yet keeps the fixture's sample numbers rather than showing
-  // zeros, same "sample data until there's real data" fallback the rest of
-  // the app already uses.
+  // data with what the backend actually has for them. `dataLoaded` marks
+  // that this fetch genuinely succeeded, so pages can tell "empty because a
+  // fresh account has done nothing yet" (real, honest zero) apart from
+  // "empty because the fetch hasn't resolved / the backend is unreachable"
+  // (the fixture fallback covers only that second case now, never the
+  // first - a brand-new student must never see the sample cohort's numbers
+  // dressed up as their own).
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     let cancelled = false;
@@ -85,14 +88,15 @@ export default function App() {
           year: profile.year || prev.year,
           branch: profile.department ? DEPARTMENT_NAMES[profile.department] || profile.department : prev.branch,
           sessions: profile.sessions_completed,
-          history: Object.keys(history).length ? history : prev.history,
-          overall: overallFromHistory(history) ?? prev.overall,
+          history,
+          overall: overallFromHistory(history),
+          dataLoaded: true,
         } : prev));
 
-        if (sessions.length) setRecent(sessions.map(sessionToRecentRow));
+        setRecent(sessions.map(sessionToRecentRow));
       } catch {
-        // Backend unreachable or a blip - the fixture fallback already
-        // covers this; nothing further to do.
+        // Backend unreachable or a blip - dataLoaded stays unset, so pages
+        // keep showing the fixture fallback rather than a broken empty state.
       }
     })();
     return () => { cancelled = true; };

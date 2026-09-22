@@ -77,7 +77,7 @@ const Blackboard = forwardRef(function Blackboard(
                 <div className="g-cap">
                   <span className="g-title chalk">Communication Growth</span>
                   <span className="g-sub">
-                    LAST {points} {points === 1 ? 'PRACTICE' : 'PRACTICES'}
+                    {points === 0 ? 'NO PRACTICES YET' : `LAST ${points} ${points === 1 ? 'PRACTICE' : 'PRACTICES'}`}
                   </span>
                 </div>
                 <div className="g-svg">
@@ -107,7 +107,11 @@ const Blackboard = forwardRef(function Blackboard(
                   </svg>
                 </h3>
 
-                <Checklist />
+                {points > 0 ? (
+                  <Checklist />
+                ) : (
+                  <p className="b-empty">Complete a practice round to see what's moving.</p>
+                )}
 
                 <p className="b-quote rv" data-ch="l" data-a=".86" data-b="1" style={{ '--r': 0 }}>
                   Say less. Mean more.

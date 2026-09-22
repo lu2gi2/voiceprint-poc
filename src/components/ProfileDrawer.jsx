@@ -137,7 +137,7 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
   const displayEmail = user?.email || student.email || 'deepak.bathirachalam@university.edu';
   const displayYear = user?.year || student.year;
   const displayBranch = user?.branch || student.branch;
-  const readiness = user?.overall ?? student.readiness;
+  const readiness = user?.dataLoaded ? user.overall : student.readiness;
   const count = practiceCount ?? student.practices;
 
   return (
@@ -191,7 +191,7 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
                 {count} Practices Completed
               </span>
               <span className="profile-tag readiness">
-                ★ {readiness}% Interview Readiness
+                {readiness == null ? 'Not yet rated' : `★ ${readiness}% Interview Readiness`}
               </span>
             </div>
           </div>

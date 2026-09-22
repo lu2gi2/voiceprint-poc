@@ -12,6 +12,10 @@ export default function RecentPractice({ items, freshId }) {
           <span>your latest answers, pinned up</span>
         </div>
 
+        {items.length === 0 && (
+          <p className="recent-empty">Nothing recorded yet — your first practice will show up here.</p>
+        )}
+
         <div className="strips">
           {items.map((r, i) => (
             <article
