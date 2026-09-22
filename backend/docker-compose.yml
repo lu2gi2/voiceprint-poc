@@ -1,0 +1,22 @@
+# Postgres, the database the PRD actually targets. The API defaults to SQLite
+# so it runs with no setup; point DATABASE_URL here to use this instead:
+#   DATABASE_URL=postgresql+psycopg://voiceprint:voiceprint@localhost:5432/voiceprint
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: voiceprint
+      POSTGRES_PASSWORD: voiceprint
+      POSTGRES_DB: voiceprint
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voiceprint"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
