@@ -10,13 +10,18 @@ import io
 import logging
 
 from ..db import SessionLocal
-from ..llm import DeepSeekError, generate_questions
+from ..llm import DeepSeekError, generate_next_question
 from ..models import Resume, SessionQuestion
 from ..storage import audio_store
 from ..tts import synthesize_wav_bytes
 from .heuristic import redact_contact_info
 
 log = logging.getLogger(__name__)
+
+# Fixed interview length. The backend never generates a 7th question past
+# this; the frontend independently knows to stop asking after answer 6, so
+# no "done" signal needs to round-trip - see the plan on issue #4.
+MAX_QUESTIONS = 6
 
 
 def process_resume(resume_id: int) -> None:
@@ -28,7 +33,7 @@ def process_resume(resume_id: int) -> None:
             return
 
         try:
-            result = generate_questions(redact_contact_info(resume.extracted_text or ""))
+            result = generate_next_question(redact_contact_info(resume.extracted_text or ""), [])
         except DeepSeekError as exc:
             log.exception("resume %s: question generation failed", resume_id)
             resume.status = "failed"
@@ -45,21 +50,23 @@ def process_resume(resume_id: int) -> None:
             db.commit()
             return
 
-        for i, q in enumerate(result["questions"]):
-            wav_bytes = synthesize_wav_bytes(q["prompt"])
-            audio_key = audio_store.put(io.BytesIO(wav_bytes), suffix=".wav")
-            db.add(SessionQuestion(
-                session_id=resume.session_id,
-                question_index=i,
-                prompt=q["prompt"],
-                target_seconds=q["target_seconds"],
-                audio_key=audio_key,
-            ))
+        wav_bytes = synthesize_wav_bytes(result["question"])
+        audio_key = audio_store.put(io.BytesIO(wav_bytes), suffix=".wav")
+        db.add(SessionQuestion(
+            session_id=resume.session_id,
+            question_index=0,
+            prompt=result["question"],
+            target_seconds=result["target_seconds"],
+            audio_key=audio_key,
+        ))
 
+        # 'ready' means "the interview can start, question 1 exists" - not
+        # "all questions exist". Questions 2..MAX_QUESTIONS are generated one
+        # at a time, chained off each answer in process_answer().
         resume.status = "ready"
         resume.reject_reason = None
         db.commit()
-        log.info("resume %s processed: %d questions generated", resume_id, len(result["questions"]))
+        log.info("resume %s processed: question 1 generated", resume_id)
 
     except Exception as exc:  # noqa: BLE001 — a bad resume must not kill the worker
         log.exception("resume %s failed", resume_id)
