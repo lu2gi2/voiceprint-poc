@@ -27,6 +27,7 @@ class AnswerOut(BaseModel):
     measurements: dict[str, Any] | None = None
     scores: list[dict[str, Any]] | None = None
     llm_note: str | None = None
+    engagement_signals: dict[str, Any] | None = None
 
     model_config = {"from_attributes": True}
 

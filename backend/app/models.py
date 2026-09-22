@@ -155,6 +155,12 @@ class Answer(Base):
     # the final report, per the plan on issue #4.
     llm_note: Mapped[str | None] = mapped_column(Text, default=None)
 
+    # HR/behavioral track only: client-side camera telemetry for this answer
+    # (face_in_frame_ratio, gaze_forward_ratio, head_pose_stability). Raw
+    # observations only, never a score — see useEngagementSignals.js. No
+    # video/frames are ever received by the backend, only these ratios.
+    engagement_signals: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

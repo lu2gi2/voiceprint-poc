@@ -1,3 +1,4 @@
+import json
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -69,6 +70,7 @@ async def upload_answer(
     prompt: str = Form(...),
     target_seconds: int = Form(...),
     audio: UploadFile = File(...),
+    engagement_signals: str | None = Form(None),
     db: DbSession = Depends(get_db),
 ) -> dict:
     """Accept one recorded answer and queue it for analysis.
@@ -77,6 +79,11 @@ async def upload_answer(
     request returns as soon as the bytes are safe and the client polls the
     session for the result. BackgroundTasks is the right size for a POC —
     swap in a real queue when a lost job on restart starts to matter.
+
+    engagement_signals is HR/behavioral-track-only, client-computed camera
+    telemetry (face_in_frame_ratio, gaze_forward_ratio, head_pose_stability;
+    see useEngagementSignals.js) sent as a JSON string form field — no video
+    ever reaches the backend. Absent for every other track.
     """
     session = db.get(InterviewSession, session_id)
     if session is None:
@@ -87,6 +94,13 @@ async def upload_answer(
         raise HTTPException(400, "empty audio upload")
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "audio too large")
+
+    parsed_engagement_signals = None
+    if engagement_signals:
+        try:
+            parsed_engagement_signals = json.loads(engagement_signals)
+        except ValueError:
+            raise HTTPException(400, "engagement_signals must be valid JSON")
 
     import io
 
@@ -99,6 +113,7 @@ async def upload_answer(
         target_seconds=target_seconds,
         audio_key=key,
         audio_mime=audio.content_type or "audio/webm",
+        engagement_signals=parsed_engagement_signals,
     )
     db.add(answer)
     db.commit()
