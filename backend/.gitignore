@@ -1,5 +1,6 @@
 .venv/
 storage/
+models/
 *.db
 __pycache__/
 *.pyc
