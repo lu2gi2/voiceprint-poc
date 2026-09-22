@@ -10,8 +10,9 @@ import io
 import logging
 
 from ..db import SessionLocal
-from ..llm import DeepSeekError, generate_next_question
-from ..models import Answer, Resume, SessionQuestion
+from ..llm import DeepSeekError, generate_next_question, generate_report
+from ..llm.tracks import TRACKS
+from ..models import Answer, InterviewSession, Resume, SessionQuestion
 from ..storage import audio_store
 from ..tts import synthesize_wav_bytes
 from .heuristic import redact_contact_info
@@ -24,6 +25,22 @@ log = logging.getLogger(__name__)
 MAX_QUESTIONS = 6
 
 
+def update_student_score(session: InterviewSession, dimensions: list[dict]) -> None:
+    """Hook point for the longitudinal per-student score store.
+
+    That store is planned as a separate Postgres-backed service, not yet
+    built - this call is the seam it will plug into once it exists (fired
+    right after a session's report is ready, with the student id and this
+    session's judged dimensions). No-op for now besides logging.
+    """
+    log.info(
+        "student %s: score-update hook fired for session %s (%d dimensions, not yet wired to a store)",
+        session.student_id,
+        session.id,
+        len(dimensions),
+    )
+
+
 def process_resume(resume_id: int) -> None:
     db = SessionLocal()
     try:
@@ -32,8 +49,11 @@ def process_resume(resume_id: int) -> None:
             log.warning("resume %s vanished before processing", resume_id)
             return
 
+        session = db.get(InterviewSession, resume.session_id)
+        track = session.assessment_id if session is not None else None
+
         try:
-            result = generate_next_question(redact_contact_info(resume.extracted_text or ""), [])
+            result = generate_next_question(redact_contact_info(resume.extracted_text or ""), [], track=track)
         except DeepSeekError as exc:
             log.exception("resume %s: question generation failed", resume_id)
             resume.status = "failed"
@@ -101,6 +121,9 @@ def maybe_continue_interview(answer_id: int) -> None:
         if resume is None or resume.status != "ready":
             return  # scripted track, or resume-driven but not past setup
 
+        session = db.get(InterviewSession, answer.session_id)
+        track = session.assessment_id if session is not None else None
+
         existing = (
             db.query(SessionQuestion)
             .filter(SessionQuestion.session_id == answer.session_id)
@@ -121,7 +144,12 @@ def maybe_continue_interview(answer_id: int) -> None:
         ]
 
         try:
-            result = generate_next_question(redact_contact_info(resume.extracted_text or ""), history)
+            result = generate_next_question(
+                redact_contact_info(resume.extracted_text or ""),
+                history,
+                track=track,
+                engagement_signals=answer.engagement_signals,
+            )
         except DeepSeekError:
             log.exception("session %s: next-question generation failed", answer.session_id)
             return  # the interview simply stalls here for this student; not retried
@@ -129,7 +157,13 @@ def maybe_continue_interview(answer_id: int) -> None:
         if result.get("correction"):
             answer.llm_note = result["correction"]
 
-        wav_bytes = synthesize_wav_bytes(result["question"])
+        # The transition ("Got it.", "Interesting approach.") is spoken but
+        # not stored as part of the question text - future history/context
+        # should see only the actual question that was asked, not the
+        # acknowledgment wrapped around it.
+        transition = result.get("transition") or ""
+        spoken = f"{transition} {result['question']}".strip()
+        wav_bytes = synthesize_wav_bytes(spoken)
         audio_key = audio_store.put(io.BytesIO(wav_bytes), suffix=".wav")
         db.add(SessionQuestion(
             session_id=answer.session_id,
@@ -144,5 +178,86 @@ def maybe_continue_interview(answer_id: int) -> None:
     except Exception:  # noqa: BLE001 — a bad turn must not kill the worker
         log.exception("session's next question failed for answer %s", answer_id)
         db.rollback()
+    finally:
+        db.close()
+
+
+def generate_session_report(session_id: int) -> None:
+    """Called once, after a session is marked complete: one DeepSeek call
+    over the whole transcript, judging whatever dimensions this track
+    defines (see tracks.py). Never touches Fluency/Conciseness - those stay
+    deterministic and are already on each Answer regardless of report
+    status.
+
+    No-op for any track with no dimensions defined (e.g. Impromptu Speaking,
+    which measures only Fluency/Conciseness by design - see assessments.js)
+    and, for resume-driven tracks, until the resume has actually cleared
+    setup. Fixed-script tracks (no Resume row at all) build their transcript
+    straight from each Answer's own prompt instead.
+    """
+    db = SessionLocal()
+    try:
+        session = db.get(InterviewSession, session_id)
+        if session is None:
+            return
+
+        track_config = TRACKS.get(session.assessment_id)
+        if track_config is None:
+            return  # no report defined for this track
+
+        resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+        resume_text = ""
+        if track_config.get("needs_resume", True):
+            if resume is None or resume.status != "ready":
+                return  # resume-driven but never got past setup
+            resume_text = redact_contact_info(resume.extracted_text or "")
+
+        answers = (
+            db.query(Answer)
+            .filter(Answer.session_id == session_id, Answer.transcript.isnot(None))
+            .order_by(Answer.question_index)
+            .all()
+        )
+        if not answers:
+            return  # nothing to judge
+
+        questions = {
+            q.question_index: q.prompt
+            for q in db.query(SessionQuestion).filter(SessionQuestion.session_id == session_id).all()
+        }
+        transcript = [
+            {
+                "question": questions.get(a.question_index, a.prompt),
+                "answer": a.transcript,
+                "engagement_signals": a.engagement_signals,
+            }
+            for a in answers
+        ]
+
+        session.report_status = "processing"
+        db.commit()
+
+        try:
+            dimensions = generate_report(resume_text, transcript, track=session.assessment_id)
+        except DeepSeekError:
+            log.exception("session %s: report generation failed", session_id)
+            session.report_status = "failed"
+            db.commit()
+            return
+
+        session.report_dimensions = dimensions
+        session.report_status = "ready"
+        db.commit()
+        log.info("session %s: report generated, %d dimensions", session_id, len(dimensions))
+
+        update_student_score(session, dimensions)
+
+    except Exception:  # noqa: BLE001 — a bad report must not kill the worker
+        log.exception("report generation crashed for session %s", session_id)
+        db.rollback()
+        session = db.get(InterviewSession, session_id)
+        if session is not None:
+            session.report_status = "failed"
+            db.commit()
     finally:
         db.close()

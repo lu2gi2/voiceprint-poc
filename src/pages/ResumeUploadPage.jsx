@@ -6,6 +6,7 @@ import {
 } from '../lib/api';
 import useAudioRecorder from '../hooks/useAudioRecorder';
 import useTtsPlayback from '../hooks/useTtsPlayback';
+import useEngagementSignals from '../hooks/useEngagementSignals';
 import VoiceOrb from '../components/VoiceOrb';
 import SessionResults from '../components/SessionResults';
 
@@ -34,7 +35,10 @@ const fmt = (s) => {
  */
 export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, onComplete }) {
   const assessment = byId(assessmentId);
+  const isHrOrBehavioral = assessmentId === 'hr' || assessmentId === 'behavioral';
+  const engagement = useEngagementSignals({ enabled: isHrOrBehavioral });
   const [offline, setOffline] = useState(false);
+  const [serviceError, setServiceError] = useState(null);
   const [state, setState] = useState('idle'); // idle | uploading | processing | rejected | failed | interview | results
   const [reason, setReason] = useState(null);
   const [fileName, setFileName] = useState(null);
@@ -51,39 +55,72 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
   const remoteId = useRef(null);
   const playedIndex = useRef(-1);
   const sentFor = useRef(null);
+  const signalsRef = useRef(null);
   const rec = useAudioRecorder();
   const tts = useTtsPlayback();
+
+  const initSession = async () => {
+    const health = await checkHealth();
+    if (!health || !health.ok || health.status !== 'ok') {
+      const msg = health?.error
+        ? `${health.statusCode ? `[${health.statusCode}] ` : ''}${health.error}`
+        : 'Analysis service unreachable (backend not responding on port 8000)';
+      setServiceError(msg);
+      setOffline(true);
+      return null;
+    }
+    try {
+      const s = await createSession({
+        student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
+        assessment,
+      });
+      remoteId.current = s.id;
+      setOffline(false);
+      setServiceError(null);
+      return s.id;
+    } catch (err) {
+      const msg = err.detail
+        ? `[${err.status || 500}] ${err.detail}`
+        : err.message || 'Failed to create session on server';
+      setServiceError(msg);
+      setOffline(true);
+      return null;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const health = await checkHealth();
-      if (cancelled) return;
-      if (!health) { setOffline(true); return; }
-      try {
-        const s = await createSession({
-          student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
-          assessment,
-        });
-        if (!cancelled) remoteId.current = s.id;
-      } catch {
-        if (!cancelled) setOffline(true);
-      }
+      await initSession();
     })();
     return () => { cancelled = true; };
   }, [assessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pickFile = () => fileInput.current?.click();
+  const pickFile = () => {
+    setReason(null);
+    if (state === 'rejected' || state === 'failed') {
+      setState('idle');
+    }
+    fileInput.current?.click();
+  };
 
   const onFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setFileName(file.name);
+    setReason(null);
+    if (state === 'rejected' || state === 'failed') {
+      setState('idle');
+    }
 
-    if (!remoteId.current) {
+    let sid = remoteId.current;
+    if (!sid) {
+      sid = await initSession();
+    }
+    if (!sid) {
       setState('rejected');
-      setReason('The analysis service is not running, so a resume cannot be checked right now.');
+      setReason(serviceError || 'The analysis service is not running or rejected session creation.');
       return;
     }
 
@@ -150,6 +187,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
     setHeard({ status: 'uploading', transcript: null });
     uploadAnswer(remoteId.current, {
       index: qIndex, prompt: current.prompt, target: current.target_seconds, blob: clip.blob, mime: clip.mime,
+      engagement_signals: signalsRef.current,
     })
       .then(({ answer_id }) => {
         if (cancelled) return null;
@@ -192,6 +230,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
       bytes: rec.clip?.blob.size ?? 0,
     };
     setAnswers((a) => [...a, entry]);
+    signalsRef.current = null;
 
     if (qIndex >= MAX_QUESTIONS - 1) {
       finishInterview();
@@ -263,13 +302,66 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
           <div className="board session-board">
             <div className="smudges" aria-hidden="true" />
 
+            {/* Corner Picture-in-Picture Camera Preview for HR & Behavioral Track */}
+            {isHrOrBehavioral && (
+              <aside className="cam-pip-corner" aria-label="Camera engagement observation preview">
+                {engagement.cameraActive ? (
+                  <div className="cam-pip-container">
+                    <video
+                      ref={engagement.attachVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="cam-pip-video"
+                      onLoadedMetadata={(e) => e.target.play().catch(() => {})}
+                    />
+                    <div className="cam-pip-badge">
+                      <span className="cam-pip-dot" />
+                      <span className="cam-pip-text">OBSERVATION ONLY</span>
+                      <button
+                        type="button"
+                        className="cam-pip-close"
+                        onClick={engagement.stopCamera}
+                        aria-label="Turn off camera"
+                        title="Turn off camera preview"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="cam-pip-stats">
+                      <span className={`cam-stat ${engagement.liveObservation.faceInFrame ? 'active' : ''}`}>
+                        {engagement.liveObservation.faceInFrame ? 'Face in frame' : 'No face'}
+                      </span>
+                      <span className={`cam-stat ${engagement.liveObservation.gazeForward ? 'active' : ''}`}>
+                        {engagement.liveObservation.gazeForward ? 'Gaze forward' : 'Gaze away'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="cam-toggle-chip"
+                    onClick={engagement.startCamera}
+                    title="Enable 100% client-side camera observations"
+                  >
+                    <span className="cam-icon">📷</span> Enable Camera
+                  </button>
+                )}
+              </aside>
+            )}
+
             {state !== 'interview' && (
               <div className="session-q">
                 <p className="session-kind">{assessment.kind}</p>
-                <h1 className="session-prompt chalk">Upload your resume to begin.</h1>
+                <h1 className="session-prompt chalk">
+                  {isHrOrBehavioral
+                    ? 'Upload resume to personalize your behavioral interview.'
+                    : 'Upload your resume to begin.'}
+                </h1>
                 <p className="session-guide">
-                  PDF or docx, text-based (not a scanned image). Used only to draw questions
-                  from what you actually built — nothing else.
+                  {isHrOrBehavioral
+                    ? 'PDF or docx, text-based (not a scanned image). Used to personalize your interview and formulate tailored follow-ups.'
+                    : 'PDF or docx, text-based (not a scanned image). Used only to draw questions from what you actually built — nothing else.'}
                 </p>
               </div>
             )}
@@ -299,7 +391,11 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
                   {state === 'processing' && (
                     <>
                       <p className="sr-big">Reading “{fileName}”…</p>
-                      <p className="sr-sub">Generating interview questions from your projects and skills.</p>
+                      <p className="sr-sub">
+                        {isHrOrBehavioral
+                          ? 'Personalizing your behavioral interview questions.'
+                          : 'Generating interview questions from your projects and skills.'}
+                      </p>
                     </>
                   )}
                   {state === 'rejected' && (
@@ -325,7 +421,18 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
                     onClick={() => {
                       if (agentState === 'blocked') { tts.retry(); return; }
                       if (agentState !== 'listening' || answered) return;
-                      rec.status === 'recording' ? rec.stop() : rec.start();
+                      if (rec.status === 'recording') {
+                        rec.stop();
+                        if (isHrOrBehavioral && engagement.cameraActive) {
+                          signalsRef.current = engagement.stopTracking();
+                        }
+                      } else {
+                        signalsRef.current = null;
+                        rec.start();
+                        if (isHrOrBehavioral && engagement.cameraActive) {
+                          engagement.startTracking();
+                        }
+                      }
                     }}
                     disabled={rec.status === 'requesting' || answered || agentState === 'speaking' || agentState === 'next'}
                     aria-label={
@@ -401,6 +508,16 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
                             )}
                           </div>
                         )}
+                        {signalsRef.current && (
+                          <div className="heard engagement-obs">
+                            <p className="heard-lab">ENGAGEMENT OBSERVATIONS (RAW EVIDENCE)</p>
+                            <p className="heard-text muted">
+                              Face in frame: {Math.round(signalsRef.current.face_in_frame_ratio * 100)}% ·
+                              Gaze forward: {Math.round(signalsRef.current.gaze_forward_ratio * 100)}% ·
+                              Head-pose stability: {Math.round(signalsRef.current.head_pose_stability * 100)}%
+                            </p>
+                          </div>
+                        )}
                       </>
                     )}
                     {agentState === 'next' && (
@@ -429,7 +546,14 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
 
             <div className="session-actions">
               {state === 'interview' && answered && (
-                <button type="button" className="auth-swap" onClick={rec.reset}>
+                <button
+                  type="button"
+                  className="auth-swap"
+                  onClick={() => {
+                    rec.reset();
+                    signalsRef.current = null;
+                  }}
+                >
                   ↺ Record it again
                 </button>
               )}
@@ -458,9 +582,11 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
 
             <p className="session-note">
               {offline
-                ? 'The analysis service is not running, so a resume cannot be checked right now.'
+                ? (serviceError ? `Service unavailable: ${serviceError}` : 'The analysis service is not running, so a resume cannot be checked right now.')
                 : state === 'interview'
                   ? 'Answers are sent to the local analysis service for transcription and scoring.'
+                  : isHrOrBehavioral
+                  ? 'Your resume is used to personalize your behavioral interview and is never stored as a file — only the extracted text is kept.'
                   : 'Your resume is parsed locally and never stored as a file — only the extracted text is kept.'}
             </p>
 

@@ -13,8 +13,30 @@ async function req(path, options = {}, { timeout = 15000 } = {}) {
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
     const res = await fetch(`${BASE}${path}`, { ...options, signal: ctrl.signal });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body.detail || body.message || (typeof body === 'string' ? body : '');
+        if (typeof detail === 'object') detail = JSON.stringify(detail);
+      } catch {
+        // non-json response
+      }
+      const msg = detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status} ${res.statusText}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.detail = detail;
+      throw err;
+    }
     return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const abortErr = new Error(`Request timed out after ${timeout}ms`);
+      abortErr.status = 408;
+      abortErr.detail = `Request timed out after ${timeout}ms`;
+      throw abortErr;
+    }
+    throw err;
   } finally {
     clearTimeout(t);
   }
@@ -23,9 +45,15 @@ async function req(path, options = {}, { timeout = 15000 } = {}) {
 /** Is there a backend to talk to? Short timeout — this gates the UI. */
 export async function checkHealth() {
   try {
-    return await req('/api/health', {}, { timeout: 2500 });
-  } catch {
-    return null;
+    const data = await req('/api/health', {}, { timeout: 2500 });
+    return { ok: true, status: 'ok', ...data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'error',
+      statusCode: err.status || null,
+      error: err.detail || err.message || 'Service unavailable',
+    };
   }
 }
 
@@ -41,7 +69,7 @@ export async function createSession({ student, assessment }) {
   });
 }
 
-export async function uploadAnswer(sessionId, { index, prompt, target, blob, mime }) {
+export async function uploadAnswer(sessionId, { index, prompt, target, blob, mime, engagement_signals }) {
   const form = new FormData();
   form.append('question_index', String(index));
   form.append('prompt', prompt);
@@ -49,6 +77,9 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
   // The extension has to match the container or ffmpeg guesses wrong.
   const ext = (mime || '').includes('mp4') ? 'm4a' : 'webm';
   form.append('audio', blob, `answer-${index}.${ext}`);
+  if (engagement_signals) {
+    form.append('engagement_signals', JSON.stringify(engagement_signals));
+  }
 
   // Generous: a long answer can be a few megabytes on a slow uplink.
   return req(`/api/sessions/${sessionId}/answers`, { method: 'POST', body: form }, { timeout: 60000 });

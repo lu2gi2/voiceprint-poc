@@ -1,3 +1,3 @@
-from .deepseek import DeepSeekError, generate_next_question
+from .deepseek import DeepSeekError, generate_next_question, generate_report
 
-__all__ = ["generate_next_question", "DeepSeekError"]
+__all__ = ["generate_next_question", "generate_report", "DeepSeekError"]

@@ -1,3 +1,4 @@
+import json
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -8,10 +9,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
+from ..llm.tracks import TRACKS
 from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
 from ..pipeline import process_answer
 from ..resume import ExtractError, check_resume_shape, extract_text
-from ..resume.pipeline import process_resume
+from ..resume.pipeline import generate_session_report, process_resume
 from ..schemas import AnswerOut, QuestionOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
 from ..storage import audio_store
 
@@ -69,6 +71,7 @@ async def upload_answer(
     prompt: str = Form(...),
     target_seconds: int = Form(...),
     audio: UploadFile = File(...),
+    engagement_signals: str | None = Form(None),
     db: DbSession = Depends(get_db),
 ) -> dict:
     """Accept one recorded answer and queue it for analysis.
@@ -77,6 +80,11 @@ async def upload_answer(
     request returns as soon as the bytes are safe and the client polls the
     session for the result. BackgroundTasks is the right size for a POC —
     swap in a real queue when a lost job on restart starts to matter.
+
+    engagement_signals is HR/behavioral-track-only, client-computed camera
+    telemetry (face_in_frame_ratio, gaze_forward_ratio, head_pose_stability;
+    see useEngagementSignals.js) sent as a JSON string form field — no video
+    ever reaches the backend. Absent for every other track.
     """
     session = db.get(InterviewSession, session_id)
     if session is None:
@@ -87,6 +95,13 @@ async def upload_answer(
         raise HTTPException(400, "empty audio upload")
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "audio too large")
+
+    parsed_engagement_signals = None
+    if engagement_signals:
+        try:
+            parsed_engagement_signals = json.loads(engagement_signals)
+        except ValueError:
+            raise HTTPException(400, "engagement_signals must be valid JSON")
 
     import io
 
@@ -99,6 +114,7 @@ async def upload_answer(
         target_seconds=target_seconds,
         audio_key=key,
         audio_mime=audio.content_type or "audio/webm",
+        engagement_signals=parsed_engagement_signals,
     )
     db.add(answer)
     db.commit()
@@ -236,14 +252,35 @@ def get_answer(answer_id: int, db: DbSession = Depends(get_db)) -> Answer:
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)
-def complete_session(session_id: int, db: DbSession = Depends(get_db)) -> InterviewSession:
+def complete_session(
+    session_id: int, background: BackgroundTasks, db: DbSession = Depends(get_db),
+) -> InterviewSession:
     session = db.get(InterviewSession, session_id)
     if session is None:
         raise HTTPException(404, "session not found")
     session.status = "complete"
     session.completed_at = datetime.now(timezone.utc)
+
+    # Only tracks with a report defined get one at all (generate_session_report
+    # is a no-op otherwise - e.g. Impromptu Speaking, by design). Resume-driven
+    # tracks additionally need the resume to have cleared setup; fixed-script
+    # tracks (no Resume row) don't. Setting report_status here, synchronously,
+    # before the response returns, closes a real race: without this,
+    # report_status stays None until the background task actually starts, and
+    # a poll landing in that gap sees "not processing" with the report not yet
+    # generated - reproduced and confirmed against a real session (#15).
+    track_config = TRACKS.get(session.assessment_id)
+    if track_config is not None:
+        if track_config.get("needs_resume", True):
+            resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+            if resume is not None and resume.status == "ready":
+                session.report_status = "processing"
+        else:
+            session.report_status = "processing"
+
     db.commit()
     db.refresh(session)
+    background.add_task(generate_session_report, session_id)
     return session
 
 
@@ -295,6 +332,15 @@ def get_summary(session_id: int, db: DbSession = Depends(get_db)) -> SessionSumm
             "confidence": "low" if any(s["confidence"] == "low" for s in scores) else "high",
             "evidence": worst["evidence"],
         })
+    # The LLM-judged dimensions (Relevance, Technical Knowledge, Clarity) -
+    # generated once, after completion, over the whole transcript. Merged in
+    # alongside the deterministic per-answer ones above; report_status stays
+    # None for scripted tracks and sessions not yet completed, so this is a
+    # no-op for them. best/worst are the same as value here - this is one
+    # session-level judgment, not an aggregate across several answers like
+    # the rule-based dimensions above, but the results screen expects both.
+    for d in session.report_dimensions or []:
+        dimensions.append({**d, "best": d["value"], "worst": d["value"]})
     dimensions.sort(key=lambda d: d["value"])
 
     return SessionSummary(
@@ -302,7 +348,10 @@ def get_summary(session_id: int, db: DbSession = Depends(get_db)) -> SessionSumm
         answers_total=len(session.answers),
         answers_ready=ready,
         answers_failed=failed,
-        processing=any(a.status in ("queued", "processing") for a in session.answers),
+        processing=(
+            any(a.status in ("queued", "processing") for a in session.answers)
+            or session.report_status == "processing"
+        ),
         total_seconds=round(total_seconds, 1),
         dimensions=dimensions,
     )

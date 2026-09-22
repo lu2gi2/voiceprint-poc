@@ -1530,3 +1530,177 @@ svg .f-drop.worst{font-size:25px;font-weight:700}
   color:var(--chalk-err);transform:rotate(-.4deg)}
 .auth-formerr span{font-family:var(--sans);font-size:13px;font-weight:700}
 .auth-formerr em{font-style:normal;font-family:var(--hand2);font-size:14px;opacity:.85;width:100%}
+
+/* Camera engagement preview and observation card (Behavioral / HR track) */
+.cam-pip-corner {
+  position: absolute;
+  top: clamp(20px, 3vw, 36px);
+  right: clamp(20px, 3.5vw, 44px);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.cam-toggle-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border: 1.5px dashed rgba(241, 239, 227, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--chalk-mute);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: border-color 0.18s, color 0.18s, background 0.18s, transform 0.15s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.cam-toggle-chip:hover {
+  border-color: var(--chalk);
+  color: var(--chalk);
+  background: rgba(0, 0, 0, 0.55);
+  transform: translateY(-1px);
+}
+.cam-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.cam-pip-container {
+  position: relative;
+  width: 172px;
+  height: 129px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1.5px solid rgba(241, 239, 227, 0.4);
+  background: #141715;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.cam-pip-container:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.75), 0 3px 8px rgba(0, 0, 0, 0.5);
+  border-color: rgba(241, 239, 227, 0.65);
+}
+
+.cam-pip-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+  background: #121513;
+}
+
+.cam-pip-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: linear-gradient(180deg, rgba(12, 14, 13, 0.9) 0%, rgba(12, 14, 13, 0) 100%);
+  z-index: 2;
+}
+
+.cam-pip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+  flex-shrink: 0;
+}
+
+.cam-pip-text {
+  font-family: var(--sans);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(241, 239, 227, 0.9);
+  flex: 1;
+}
+
+.cam-pip-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: rgba(241, 239, 227, 0.65);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+.cam-pip-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cam-pip-stats {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 5px 6px;
+  background: linear-gradient(0deg, rgba(12, 14, 13, 0.94) 0%, rgba(12, 14, 13, 0) 100%);
+  z-index: 2;
+}
+
+.cam-stat {
+  font-family: var(--sans);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(241, 239, 227, 0.45);
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  transition: color 0.2s, background 0.2s;
+}
+.cam-stat.active {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.2);
+}
+
+.engagement-obs {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dotted rgba(241, 239, 227, 0.2);
+}
+
+@media (max-width: 900px) {
+  .cam-pip-corner {
+    top: 14px;
+    right: 14px;
+  }
+  .cam-pip-container {
+    width: 144px;
+    height: 108px;
+  }
+}
+
+@media (max-width: 640px) {
+  .cam-pip-corner {
+    position: static;
+    margin: 0 auto 16px;
+    align-items: center;
+  }
+  .cam-pip-container {
+    width: 154px;
+    height: 115px;
+  }
+}
+
+
