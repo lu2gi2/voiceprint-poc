@@ -24,6 +24,14 @@ class Student(Base):
     roll_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
+
+    # Department code (e.g. 'CSE') rather than a Department table - four
+    # fixed values, only ever grouped by for the admin portal, not worth a
+    # relation. Both nullable: self-registered students (AuthPage.jsx) don't
+    # supply either; only the admin-roster seed does.
+    department: Mapped[str | None] = mapped_column(String(32), default=None)
+    year: Mapped[str | None] = mapped_column(String(32), default=None)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     sessions: Mapped[list["InterviewSession"]] = relationship(
@@ -31,6 +39,9 @@ class Student(Base):
     )
     dimension_scores: Mapped[list["StudentDimensionScore"]] = relationship(
         back_populates="student", cascade="all, delete-orphan", order_by="StudentDimensionScore.created_at"
+    )
+    resume: Mapped["StudentResume | None"] = relationship(
+        back_populates="student", cascade="all, delete-orphan", uselist=False
     )
 
 
@@ -207,3 +218,33 @@ class Answer(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     session: Mapped[InterviewSession] = relationship(back_populates="answers")
+
+
+class StudentResume(Base):
+    """One resume per student profile — separate from the per-session
+    Resume model (interview tracks redact and discard their copy per
+    session; this one persists and is reused). Backs the profile drawer's
+    upload and the sticky-note wall's resume breakdown, which used to be a
+    localStorage-only upload and hardcoded fixture notes respectively, with
+    no connection between the two or to this backend."""
+
+    __tablename__ = "student_resumes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), unique=True, index=True)
+
+    original_filename: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(24), default="processing")  # processing | ready | rejected | failed
+    reject_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    extracted_text: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # The sticky-note wall's five categories (repetitive verbs, missing
+    # metrics, STAR structure, ATS keyword gaps, filler phrases), each with
+    # a real count/pct/tip/evidence generated from extracted_text - see
+    # app/llm/resume_notes.py. None until analysis completes.
+    notes: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    student: Mapped[Student] = relationship(back_populates="resume")

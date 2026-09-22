@@ -43,6 +43,39 @@ class StudentHistoryOut(BaseModel):
     scores: list[DimensionScoreOut]
 
 
+class StudentProfileOut(BaseModel):
+    id: int
+    name: str
+    roll_number: str
+    email: str
+    department: str | None = None
+    year: str | None = None
+    sessions_completed: int
+
+    model_config = {"from_attributes": True}
+
+
+class SessionListItemOut(BaseModel):
+    id: int
+    assessment_id: str
+    assessment_title: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    total_seconds: float
+    answers_count: int
+
+
+class StudentResumeOut(BaseModel):
+    status: str
+    reject_reason: str | None = None
+    original_filename: str | None = None
+    notes: list[dict[str, Any]] | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class SessionCreate(BaseModel):
     student_id: int
     assessment_id: str = Field(min_length=1, max_length=64)
