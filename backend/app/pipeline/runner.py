@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from ..db import SessionLocal
 from ..models import Answer
+from ..resume.pipeline import maybe_continue_interview
 from ..storage import audio_store
 from .acoustics import analyse
 from .audio import to_wav16k
@@ -52,6 +53,10 @@ def process_answer(answer_id: int) -> None:
         db.commit()
         log.info("answer %s processed: %d words, %.0f wpm", answer_id, m.word_count,
                  m.speaking_rate_wpm)
+
+        # Resume-driven track only (no-op otherwise, see maybe_continue_interview):
+        # generate the next question adaptively now that this one is scored.
+        maybe_continue_interview(answer_id)
 
     except Exception as exc:  # noqa: BLE001 — a bad answer must not kill the worker
         log.exception("answer %s failed", answer_id)

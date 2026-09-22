@@ -26,6 +26,7 @@ class AnswerOut(BaseModel):
     transcript: str | None = None
     measurements: dict[str, Any] | None = None
     scores: list[dict[str, Any]] | None = None
+    llm_note: str | None = None
 
     model_config = {"from_attributes": True}
 
