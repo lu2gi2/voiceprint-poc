@@ -1,3 +1,4 @@
 from .extract import ExtractError, extract_text
+from .heuristic import HeuristicResult, check_resume_shape
 
-__all__ = ["extract_text", "ExtractError"]
+__all__ = ["extract_text", "ExtractError", "check_resume_shape", "HeuristicResult"]
