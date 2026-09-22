@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
@@ -38,10 +38,18 @@ def _suffix(mime: str) -> str:
 
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
-def create_session(payload: SessionCreate, db: DbSession = Depends(get_db)) -> InterviewSession:
+async def create_session(request: Request, db: DbSession = Depends(get_db)) -> InterviewSession:
     """Open a session. The student is upserted on email — v1 has no real auth,
     so this is identity by assertion, and deliberately the only place that
-    assumption lives."""
+    assumption lives.
+
+    Parses the body manually rather than taking `payload: SessionCreate`
+    directly — FastAPI's automatic JSON parsing keys off `Content-Type:
+    application/json`, but the client deliberately omits that header so the
+    browser sends this as a CORS "simple request" (no preflight OPTIONS).
+    The body is JSON either way; only the header is different.
+    """
+    payload = SessionCreate.model_validate_json(await request.body())
     student = db.query(Student).filter(Student.email == payload.student.email).one_or_none()
     if student is None:
         student = Student(email=payload.student.email, name=payload.student.name)

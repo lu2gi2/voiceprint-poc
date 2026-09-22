@@ -16,3 +16,4 @@ dist/
 .nuvai/discussions.jsonl
 .nuvai/reviews/
 .nuvai/audits
+.appsail/

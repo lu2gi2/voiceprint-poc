@@ -30,9 +30,15 @@ export async function checkHealth() {
 }
 
 export async function createSession({ student, assessment }) {
+  // No explicit Content-Type: the browser defaults to text/plain for a string
+  // body, which keeps this a CORS "simple request" (no preflight OPTIONS).
+  // The backend parses the body manually to match (see create_session),
+  // since FastAPI's automatic JSON parsing only kicks in for
+  // Content-Type: application/json. Catalyst AppSail's gateway currently
+  // swallows preflight OPTIONS requests before they reach the app container,
+  // so avoiding preflight entirely is the workaround until that's fixed.
   return req('/api/sessions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       student: { email: student.email, name: student.name },
       assessment_id: assessment.id,

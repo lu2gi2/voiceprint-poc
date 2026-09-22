@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "60602000000063001",
+      "name": "voiceprint",
+      "domain": {
+        "id": "50046175033",
+        "name": "voiceprint-60080594519.development"
+      },
+      "timezone": "Asia/Kolkata",
+      "env": [
+        {
+          "idx": 1,
+          "id": "60080594519",
+          "name": "Development",
+          "type": 3
+        }
+      ]
+    }
+  ]
+}
