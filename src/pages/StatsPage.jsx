@@ -1,35 +1,30 @@
 import { useState } from 'react';
 import { Pencil, Pin, Tape, Underline } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
-import ChalkBarChart from '../components/charts/ChalkBarChart';
-import ChalkSparkGrid from '../components/charts/ChalkSparkGrid';
-import TelemetryBullets from '../components/charts/TelemetryBullets';
+import DimensionBoard from '../components/charts/DimensionBoard';
 import StarDropoff from '../components/charts/StarDropoff';
-import VerdictTiles from '../components/charts/VerdictTiles';
-import { BOARD, rankSkills, signed } from '../lib/viz';
+import { diagnose, signed } from '../lib/viz';
 import {
   student,
   longitudinal,
   evidence,
-  telemetry,
   starStages,
   coachingPlan,
   BENCHMARK,
 } from '../data/fixtures';
 
-/* One ranking, computed once, shared by every chart on the page so the
-   ordering and the colouring can never drift apart. */
-const ranked = rankSkills(longitudinal.skills, BENCHMARK);
-const best = ranked[0];
-const worst = ranked[ranked.length - 1];
-const biggestGain = ranked.reduce((a, b) => (a.delta >= b.delta ? a : b));
+/* Worked out once. Every section reads from this, so nothing can disagree
+   with anything else — and each dimension's score is rendered in exactly one
+   place on the page. */
+const dims = diagnose(longitudinal.skills, BENCHMARK);   // weakest first
+const worst = dims[0];
+const best = dims[dims.length - 1];
+const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
+const behind = dims.filter((d) => !d.ahead).length;
 
 /* ---------- The board: where you stand, and how you got here ---------- */
 
 function StandingBoard() {
-  const [showTable, setShowTable] = useState(false);
-  const aheadCount = ranked.filter((r) => r.ahead).length;
-
   return (
     <section className="board-panel" aria-label="Where you stand">
       <div className="frame static">
@@ -37,60 +32,14 @@ function StandingBoard() {
           <div className="smudges" aria-hidden="true" />
 
           <div className="b-chart-head">
-            <h2 className="chalk">Where you stand today.</h2>
+            <h2 className="chalk">Five dimensions, five different stories.</h2>
             <p className="mute">
-              {aheadCount} of {ranked.length} dimensions {aheadCount === 1 ? 'is' : 'are'} at or
-              above the {BENCHMARK} target.
+              {behind} of {dims.length} still short of the {BENCHMARK} target.
+              Tap any row for its full history.
             </p>
           </div>
 
-          <div className="chalk-legend" aria-hidden="true">
-            <span><i style={{ background: BOARD.ahead }} />at or above target</span>
-            <span><i style={{ background: BOARD.behind }} />below target</span>
-            <span><i className="rule" style={{ background: BOARD.accent }} />target {BENCHMARK}</span>
-          </div>
-
-          <ChalkBarChart rows={ranked} benchmark={BENCHMARK} />
-
-          <div className="b-chart-head spaced">
-            <h2 className="chalk">How each one moved.</h2>
-            <p className="mute">Same five dimensions, every assessment since you started.</p>
-          </div>
-
-          <ChalkSparkGrid rows={ranked} terms={longitudinal.terms} benchmark={BENCHMARK} />
-
-          <div className="board-foot">
-            <p>Biggest gain: <em>{biggestGain.name} {signed(biggestGain.delta)}</em>.</p>
-            <button type="button" className="board-link" onClick={() => setShowTable((v) => !v)}
-              aria-expanded={showTable}>
-              {showTable ? 'Hide the numbers' : 'Show the numbers'}
-            </button>
-          </div>
-
-          {/* The chart's table twin — every value as text, no colour needed. */}
-          {showTable && (
-            <table className="ctable">
-              <caption className="sr-cap">Every score, by assessment</caption>
-              <thead>
-                <tr>
-                  <th scope="col">SKILL</th>
-                  {longitudinal.terms.map((t) => <th key={t} scope="col">{t}</th>)}
-                  <th scope="col">CHANGE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ranked.map((s) => (
-                  <tr key={s.name}>
-                    <th scope="row" className="chalk">{s.name}</th>
-                    {s.scores.map((v, i) => (
-                      <td key={i} className={i === s.scores.length - 1 ? 'now' : 'was'}>{v}</td>
-                    ))}
-                    <td className="delta">{signed(s.delta)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <DimensionBoard rows={dims} benchmark={BENCHMARK} />
 
           <div className="dust" aria-hidden="true" />
         </div>
@@ -122,8 +71,8 @@ function EvidenceWall() {
               <Underline stroke="#C0483E" />
             </h2>
             <p className="lede">
-              Every number above is calculated from your last assessment — not an opinion.
-              These are the measurements it came from.
+              Each score above comes from these counts, and each count appears once.
+              Nothing here is an opinion — it was measured from your last assessment.
             </p>
           </div>
 
@@ -156,31 +105,26 @@ function EvidenceWall() {
 
 /* ---------- Measured signals, on ruled paper (PRD §6) ---------- */
 
-function MetricPads() {
-  const off = telemetry.filter((m) => m.value < m.band[0] || m.value > m.band[1]);
+function AnswerShape() {
+  const drops = starStages.map(([, v], i) => (i === 0 ? 0 : v - starStages[i - 1][1]));
+  const worstStep = Math.min(...drops);
+  const at = starStages[drops.indexOf(worstStep)][0];
 
   return (
-    <section className="paper-cols" aria-label="Speech metrics and answer structure">
-      <div className="paper-cols-in">
+    <section className="paper-cols" aria-label="How your answers are built">
+      <div className="paper-cols-in single">
         <div className="pad a">
           <Tape rotate={2} />
-          <p className="eyebrow">MEASURED FROM YOUR AUDIO</p>
-          <h3>Speech telemetry</h3>
-          <TelemetryBullets rows={telemetry} />
-          <p className="foot-note">
-            {off.length} of {telemetry.length} readings sit outside their target range:{' '}
-            {off.map((m) => m.name.toLowerCase()).join(', ')}.
-          </p>
-        </div>
-
-        <div className="pad b">
-          <Tape rotate={-3} />
-          <p className="eyebrow">HOW YOUR ANSWERS ARE BUILT</p>
+          <p className="eyebrow">A DIFFERENT CUT — WITHIN A SINGLE ANSWER</p>
           <h3>Where answers fall away</h3>
+          <p className="pad-lede">
+            The scores above measure dimensions across the whole round. This is the
+            other axis: how far a single answer gets before it runs out.
+          </p>
           <StarDropoff stages={starStages} />
           <p className="foot-note">
-            You set the story up well. Coverage halves by the Result — the part an
-            interviewer remembers.
+            You set the story up well and lose most of it at {at} — {Math.abs(worstStep)} points
+            gone in one step, and the Result is the part an interviewer remembers.
           </p>
         </div>
       </div>
@@ -248,15 +192,16 @@ export default function StatsPage({ onBack, onPractice, practiceCount }) {
             <Underline stroke="#C0483E" />
           </h1>
           <p className="lede">
-            Pulled from {practiceCount} assessments. Everything below is the working
-            behind those two sentences.
+            Pulled from {practiceCount} assessments. {best.name} has cleared the target;
+            {' '}{worst.name.toLowerCase()} is {Math.abs(worst.gap)} points short and is what
+            the plan below plays for. Biggest mover so far: {biggestGain.name}{' '}
+            {signed(biggestGain.delta)}.
           </p>
         </div>
 
-        <VerdictTiles best={best} worst={worst} benchmark={BENCHMARK} />
         <StandingBoard />
         <EvidenceWall />
-        <MetricPads />
+        <AnswerShape />
         <CoachingPlan onPractice={onPractice} />
       </main>
     </div>

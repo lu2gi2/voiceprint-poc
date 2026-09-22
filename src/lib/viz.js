@@ -43,23 +43,68 @@ export const clampTo = ([d0, d1], v) => Math.max(d0, Math.min(d1, v));
 export const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
 
 /**
- * Rank skills against the benchmark. Returns them sorted strongest first,
- * each tagged with its standing — the report leans on this everywhere so the
- * ordering and the colouring can never disagree with each other.
+ * Derive what is actually interesting about each dimension.
+ *
+ * The report used to show the same five scores in five different chart styles.
+ * A score repeated is not analysis — so instead of re-drawing the level, work
+ * out what is *distinctive* about each dimension and say that once.
+ *
+ * Level alone hides the thing that matters: a dimension sitting at 74 and
+ * climbing is in a completely different situation from one sitting at 74 and
+ * stalled, and the old page made you compare two charts to notice.
  */
-export function rankSkills(skills, benchmark) {
-  return skills
-    .map((s) => {
-      const now = s.scores[s.scores.length - 1];
-      const first = s.scores[0];
-      return {
-        ...s,
-        now,
-        first,
-        delta: now - first,
-        gap: now - benchmark,
-        ahead: now >= benchmark,
-      };
+export function diagnose(skills, benchmark) {
+  const rows = skills.map((s) => {
+    const n = s.scores.length;
+    const now = s.scores[n - 1];
+    const first = s.scores[0];
+    const delta = now - first;
+    // Average movement per assessment, used for the projection below.
+    const rate = n > 1 ? delta / (n - 1) : 0;
+    // Early half vs recent half: catches a dimension that has plateaued after
+    // a good start, which the total delta flatters.
+    const early = s.scores[Math.floor(n / 2)] - s.scores[0];
+    const recent = s.scores[n - 1] - s.scores[Math.floor(n / 2)];
+    const gap = now - benchmark;
+    return { ...s, now, first, delta, rate, early, recent, gap, ahead: now >= benchmark };
+  });
+
+  const byDelta = [...rows].sort((a, b) => b.delta - a.delta);
+  const byNow = [...rows].sort((a, b) => b.now - a.now);
+  const byFirst = [...rows].sort((a, b) => b.first - a.first);
+  const weakest = byNow[byNow.length - 1];
+
+  return rows
+    .map((r) => {
+      const startRank = byFirst.findIndex((x) => x.name === r.name) + 1;
+      const nowRank = byNow.findIndex((x) => x.name === r.name) + 1;
+      // Rounds needed to clear the benchmark at the pace of the last few.
+      const toTarget = r.ahead || r.rate <= 0 ? 0 : Math.ceil((benchmark - r.now) / r.rate);
+
+      // One line, and only the most notable thing — a list of observations
+      // per dimension is just the repetition problem in prose.
+      let note;
+      if (r.name === weakest.name) {
+        note = r.recent > r.early
+          ? `Furthest from target, but moving fastest lately (+${r.recent} in recent rounds)`
+          : `Furthest from target — ${Math.abs(r.gap)} points short`;
+      } else if (r.ahead) {
+        note = `Clear of the ${benchmark} target`;
+      } else if (r.name === byDelta[0].name) {
+        note = `Biggest gain overall, +${r.delta} since you started`;
+      } else if (nowRank > startRank) {
+        note = `Started your strongest, now ${ordinal(nowRank)} — slowest to improve`;
+      } else if (Math.abs(r.gap) <= 2) {
+        note = `Within ${Math.abs(r.gap)} ${Math.abs(r.gap) === 1 ? 'point' : 'points'} of target`;
+      } else if (r.recent < r.early) {
+        note = `Rising, but slower than it was (+${r.early} then, +${r.recent} now)`;
+      } else {
+        note = `Steady climb, ${Math.abs(r.gap)} points to go`;
+      }
+
+      return { ...r, startRank, nowRank, toTarget, note };
     })
-    .sort((a, b) => b.now - a.now);
+    .sort((a, b) => a.now - b.now); // weakest first — that is what to act on
 }
+
+const ordinal = (n) => ['', 'first', 'second', 'third', 'fourth', 'fifth'][n] || `${n}th`;
