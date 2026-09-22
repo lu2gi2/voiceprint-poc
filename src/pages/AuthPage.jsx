@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import ChalkField from '../components/ChalkField';
-import { findStudent, findAdmin, students, DEMO_PASSWORD } from '../data/students.js';
+import { findStudent, findAdmin, DEMO_PASSWORD } from '../data/students.js';
 
 /* Two roles share one board — the chalk gets rubbed out and rewritten rather
    than sending an admin to a separate page. */
@@ -198,13 +198,12 @@ export default function AuthPage({ onAuthed }) {
                   label={isAdmin ? 'staff username' : 'roll number'}
                   value={values.username} onChange={set('username')}
                   error={errors.username} autoComplete="username"
-                  placeholder={isAdmin ? 'admin' : students[0].roll} seed={2}
+                  seed={2}
                 />
                 <ChalkField
                   label="password" type="password" value={values.password} onChange={set('password')}
                   error={errors.password} seed={3}
                   autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                  placeholder="anything works"
                 />
               </div>
 
@@ -226,12 +225,6 @@ export default function AuthPage({ onAuthed }) {
 
               </div>
 
-              <p className="auth-demo">
-                Demo accounts — password <b>{DEMO_PASSWORD}</b> for everyone.{' '}
-                {isAdmin
-                  ? 'Staff usernames: admin, placement.'
-                  : `Sign in with any roll number, e.g. ${students[0].roll} (${students[0].name}) or ${students[520].roll}.`}
-              </p>
             </form>
 
             <div className="dust" aria-hidden="true" />

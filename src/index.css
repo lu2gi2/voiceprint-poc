@@ -650,9 +650,6 @@ svg .f-drop.worst{font-size:25px;font-weight:700}
   border-bottom:1.5px dotted rgba(241,239,227,.4);transition:color .2s,border-color .2s}
 .auth-swap:hover,.auth-swap:focus-visible{color:var(--chalk);border-bottom-color:var(--chalk)}
 
-.auth-demo{margin-top:clamp(20px,3vh,30px);padding-top:14px;
-  border-top:2px dashed rgba(241,239,227,.14);
-  font-family:var(--hand2);font-size:14px;line-height:1.35;color:var(--chalk-mute);opacity:.85}
 
 /* focus ring has to read on chalkboard as well as paper */
 .auth :focus-visible{outline:3px solid var(--chalk);outline-offset:3px}
