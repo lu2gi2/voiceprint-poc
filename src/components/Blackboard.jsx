@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import GrowthGraph from './GrowthGraph';
+import GrowthGraph, { trajectory } from './GrowthGraph';
 import { CHECKS } from '../data/fixtures';
 import { fixed as f } from '../lib/chalk';
 
@@ -50,6 +50,10 @@ const Blackboard = forwardRef(function Blackboard(
   { stickRef, frameRef, graphRef, listRef, onOpenStats, user },
   trackRef,
 ) {
+  // Counted from the same trajectory the graph draws, so the caption cannot
+  // claim six practices over a four-point series.
+  const points = trajectory(user).data.length;
+
   return (
     <section className="board-track" id="board" ref={trackRef} aria-label="Your communication journey">
       <div className="board-stick" ref={stickRef}>
@@ -72,7 +76,9 @@ const Blackboard = forwardRef(function Blackboard(
               <figure className="b-graph" ref={graphRef}>
                 <div className="g-cap">
                   <span className="g-title chalk">Communication Growth</span>
-                  <span className="g-sub">LAST 6 PRACTICES</span>
+                  <span className="g-sub">
+                    LAST {points} {points === 1 ? 'PRACTICE' : 'PRACTICES'}
+                  </span>
                 </div>
                 <div className="g-svg">
                   <GrowthGraph user={user} />

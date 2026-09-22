@@ -21,8 +21,10 @@ const fade = (a, b, ch = 'g', extra = '') => ({
 });
 
 /** The student's own overall trajectory — the mean of their dimension
- *  histories — falling back to the sample roll when nobody is signed in. */
-function trajectory(user) {
+ *  histories — falling back to the sample roll when nobody is signed in.
+ *  Exported so the caption above the graph can count the same points it draws
+ *  rather than asserting a number of its own. */
+export function trajectory(user) {
   if (!user?.history) return growth;
   const dims = Object.values(user.history);
   const n = dims[0].length;
