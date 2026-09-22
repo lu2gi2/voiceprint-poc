@@ -96,6 +96,27 @@ export function questionAudioUrl(sessionId, index) {
   return `${BASE}/api/sessions/${sessionId}/questions/${index}/audio`;
 }
 
+/** Wait for question `index` to exist — the adaptive next-question step runs
+ *  as a background task after the previous answer is scored, so this can
+ *  take a while (a DeepSeek call plus a TTS render). Returns null on
+ *  timeout rather than throwing, so the caller can show a clear message
+ *  instead of an unexplained hang. */
+export async function pollForQuestion(sessionId, index, { onTick, timeoutMs = 120000, everyMs = 2500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const qs = await getQuestions(sessionId);
+      const found = qs.find((q) => q.question_index === index);
+      onTick?.(qs);
+      if (found) return found;
+    } catch {
+      // a blip mid-poll should not strand the interview; keep trying
+    }
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  return null;
+}
+
 export async function getAnswer(answerId) {
   return req(`/api/answers/${answerId}`);
 }

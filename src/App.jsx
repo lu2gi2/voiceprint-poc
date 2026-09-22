@@ -136,6 +136,8 @@ export default function App() {
           assessmentId={runningId}
           user={user}
           onExit={() => { setRunningId(null); setView('assessments'); }}
+          onDone={() => { setRunningId(null); setView('journey'); }}
+          onComplete={finishSession}
         />
       )}
 
