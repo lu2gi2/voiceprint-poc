@@ -4,13 +4,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
-from ..models import Answer, InterviewSession, Resume, Student
+from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
 from ..pipeline import process_answer
 from ..resume import ExtractError, check_resume_shape, extract_text
-from ..schemas import AnswerOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
+from ..resume.pipeline import process_resume
+from ..schemas import AnswerOut, QuestionOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
 from ..storage import audio_store
 
 router = APIRouter(prefix="/api", tags=["sessions"])
@@ -106,22 +108,24 @@ async def upload_answer(
     return {"answer_id": answer.id, "status": answer.status, "bytes": len(data)}
 
 
-@router.post("/sessions/{session_id}/resume", response_model=ResumeOut)
+@router.post("/sessions/{session_id}/resume", response_model=ResumeOut, status_code=202)
 async def upload_resume(
     session_id: int,
+    background: BackgroundTasks,
     resume: UploadFile = File(...),
     db: DbSession = Depends(get_db),
 ) -> Resume:
     """Upload a resume for the technical track.
 
-    Local-only: extract → cheap heuristic reject → done. The DeepSeek call
-    that turns a validated resume into a question list is a separate step
-    (issue #4) — 'validated' here means "passed the local checks", not "the
-    interview is ready to start".
+    Local checks (extract, heuristic) run synchronously since they are
+    fast; a pass queues process_resume as a background task — the DeepSeek
+    call and per-question TTS pre-render take real seconds, the same reason
+    /answers is async. 'processing' means "passed local checks, generating
+    questions"; poll GET .../resume for 'ready' | 'rejected' | 'failed'.
 
     The original file is never written to persistent storage — it is parsed
     from a temp file and discarded; only the extracted text is kept, since
-    that (redacted) is what the question-generation call will need.
+    that (redacted) is what the question-generation call needs.
     """
     session = db.get(InterviewSession, session_id)
     if session is None:
@@ -162,10 +166,39 @@ async def upload_resume(
         raise HTTPException(422, result.reason)
 
     record = _save_resume(
-        db, session, resume.filename or "resume", "validated", None,
+        db, session, resume.filename or "resume", "processing", None,
         extracted_text=text, heuristic_score=result.score,
     )
+    background.add_task(process_resume, record.id)
     return record
+
+
+@router.get("/sessions/{session_id}/resume", response_model=ResumeOut)
+def get_resume(session_id: int, db: DbSession = Depends(get_db)) -> Resume:
+    resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+    if resume is None:
+        raise HTTPException(404, "no resume uploaded for this session")
+    return resume
+
+
+@router.get("/sessions/{session_id}/questions", response_model=list[QuestionOut])
+def get_questions(session_id: int, db: DbSession = Depends(get_db)) -> list[SessionQuestion]:
+    session = db.get(InterviewSession, session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return session.questions
+
+
+@router.get("/sessions/{session_id}/questions/{index}/audio")
+def get_question_audio(session_id: int, index: int, db: DbSession = Depends(get_db)) -> FileResponse:
+    q = (
+        db.query(SessionQuestion)
+        .filter(SessionQuestion.session_id == session_id, SessionQuestion.question_index == index)
+        .one_or_none()
+    )
+    if q is None or not q.audio_key:
+        raise HTTPException(404, "audio not found")
+    return FileResponse(audio_store.path(q.audio_key), media_type="audio/wav")
 
 
 def _save_resume(

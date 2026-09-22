@@ -41,6 +41,15 @@ class SessionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class QuestionOut(BaseModel):
+    question_index: int
+    prompt: str
+    target_seconds: int
+    audio_key: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class ResumeOut(BaseModel):
     status: str
     reject_reason: str | None = None
