@@ -10,12 +10,13 @@ from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
 from ..llm.tracks import TRACKS
-from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
+from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student, StudentResume
 from ..pipeline import process_answer
 from ..resume import ExtractError, check_resume_shape, extract_text
 from ..resume.pipeline import generate_session_report, process_resume
 from ..schemas import AnswerOut, QuestionOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
 from ..storage import audio_store
+from ..student_resume import process_student_resume
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -128,7 +129,11 @@ async def upload_resume(
     resume: UploadFile = File(...),
     db: DbSession = Depends(get_db),
 ) -> Resume:
-    """Upload a resume for the technical track.
+    """Upload a resume for a resume-driven track — and, in the same call,
+    save it as this student's profile resume (StudentResume) so later
+    sessions can reuse it via POST .../resume/from-profile instead of
+    asking for another upload. A re-upload here replaces the profile
+    resume too, same as replacing it from ProfileDrawer.jsx would.
 
     Local checks (extract, heuristic) run synchronously since they are
     fast; a pass queues process_resume as a background task — the DeepSeek
@@ -181,6 +186,49 @@ async def upload_resume(
     record = _save_resume(
         db, session, resume.filename or "resume", "processing", None,
         extracted_text=text, heuristic_score=result.score,
+    )
+    background.add_task(process_resume, record.id)
+
+    _save_profile_resume(db, session.student_id, resume.filename or "resume", text)
+    background.add_task(process_student_resume, _get_profile_resume_id(db, session.student_id))
+
+    return record
+
+
+def _save_profile_resume(db: DbSession, student_id: int, filename: str, text: str) -> None:
+    profile = db.query(StudentResume).filter(StudentResume.student_id == student_id).one_or_none()
+    if profile is None:
+        profile = StudentResume(student_id=student_id, original_filename=filename)
+        db.add(profile)
+    profile.original_filename = filename
+    profile.status = "processing"
+    profile.reject_reason = None
+    profile.extracted_text = text
+    profile.notes = None
+    db.commit()
+
+
+def _get_profile_resume_id(db: DbSession, student_id: int) -> int:
+    return db.query(StudentResume).filter(StudentResume.student_id == student_id).one().id
+
+
+@router.post("/sessions/{session_id}/resume/from-profile", response_model=ResumeOut, status_code=202)
+def use_profile_resume(session_id: int, background: BackgroundTasks, db: DbSession = Depends(get_db)) -> Resume:
+    """Skip the upload entirely and reuse this student's existing profile
+    resume (StudentResume) for this session — the "you already have one on
+    file" path. 404 if there is no ready profile resume; the frontend falls
+    back to the normal upload flow in that case."""
+    session = db.get(InterviewSession, session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+
+    profile = db.query(StudentResume).filter(StudentResume.student_id == session.student_id).one_or_none()
+    if profile is None or profile.status != "ready":
+        raise HTTPException(404, "no profile resume on file")
+
+    record = _save_resume(
+        db, session, profile.original_filename, "processing", None,
+        extracted_text=profile.extracted_text,
     )
     background.add_task(process_resume, record.id)
     return record

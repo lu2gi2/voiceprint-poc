@@ -3,6 +3,7 @@ import { byId } from '../data/assessments';
 import {
   checkHealth, createSession, uploadResume, pollResume, getQuestions, questionAudioUrl,
   uploadAnswer, pollAnswer, pollForQuestion, completeSession, pollSummary, getSession,
+  getStudentResume, useProfileResumeForSession,
 } from '../lib/api';
 import useAudioRecorder from '../hooks/useAudioRecorder';
 import useTtsPlayback from '../hooks/useTtsPlayback';
@@ -39,7 +40,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
   const engagement = useEngagementSignals({ enabled: isHrOrBehavioral });
   const [offline, setOffline] = useState(false);
   const [serviceError, setServiceError] = useState(null);
-  const [state, setState] = useState('idle'); // idle | uploading | processing | rejected | failed | interview | results
+  const [state, setState] = useState('checking'); // checking | idle | reusing | uploading | processing | rejected | failed | interview | results
   const [reason, setReason] = useState(null);
   const [fileName, setFileName] = useState(null);
 
@@ -85,17 +86,59 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
     }
   };
 
+  // Shared tail once a Resume row exists for this session (either just
+  // uploaded, or reused from the student's profile) and is 'processing':
+  // wait for question generation, then move into the interview.
+  const awaitResumeReady = async () => {
+    setState('processing');
+    const final = await pollResume(remoteId.current);
+    if (!final) {
+      setState('failed');
+      setReason('Timed out waiting for question generation.');
+      return;
+    }
+    if (final.status !== 'ready') {
+      setState(final.status);
+      setReason(final.reject_reason);
+      return;
+    }
+    const qs = await getQuestions(remoteId.current).catch(() => []);
+    setQuestions(qs);
+    setQIndex(0);
+    setHeard(null);
+    playedIndex.current = -1;
+    setState('interview');
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await initSession();
+      const sid = await initSession();
+      if (cancelled || !sid) { if (!cancelled) setState('idle'); return; }
+
+      // Already have a resume on file (ProfileDrawer.jsx, or a previous
+      // session's upload) - reuse it instead of asking for another upload.
+      try {
+        const profile = await getStudentResume(user.id);
+        if (cancelled) return;
+        if (profile.status === 'ready') {
+          setFileName(profile.original_filename);
+          setState('reusing');
+          await useProfileResumeForSession(sid);
+          if (!cancelled) await awaitResumeReady();
+          return;
+        }
+      } catch {
+        // no profile resume yet (404) - fall through to the upload prompt
+      }
+      if (!cancelled) setState('idle');
     })();
     return () => { cancelled = true; };
   }, [assessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickFile = () => {
     setReason(null);
-    if (state === 'rejected' || state === 'failed') {
+    if (state === 'rejected' || state === 'failed' || state === 'reusing') {
       setState('idle');
     }
     fileInput.current?.click();
@@ -130,24 +173,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
         setReason(result.reject_reason);
         return;
       }
-      setState('processing');
-      const final = await pollResume(remoteId.current);
-      if (!final) {
-        setState('failed');
-        setReason('Timed out waiting for question generation.');
-        return;
-      }
-      if (final.status !== 'ready') {
-        setState(final.status);
-        setReason(final.reject_reason);
-        return;
-      }
-      const qs = await getQuestions(remoteId.current).catch(() => []);
-      setQuestions(qs);
-      setQIndex(0);
-      setHeard(null);
-      playedIndex.current = -1;
-      setState('interview');
+      await awaitResumeReady();
     } catch (err) {
       setState('rejected');
       setReason(err.message);
@@ -347,7 +373,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
               </aside>
             )}
 
-            {state !== 'interview' && (
+            {state !== 'interview' && state !== 'checking' && state !== 'reusing' && (
               <div className="session-q">
                 <p className="session-kind">{assessment.kind}</p>
                 <h1 className="session-prompt chalk">
@@ -363,6 +389,15 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
               </div>
             )}
 
+            {(state === 'checking' || state === 'reusing') && (
+              <div className="session-q">
+                <p className="session-kind">{assessment.kind}</p>
+                <h1 className="session-prompt chalk">
+                  {state === 'reusing' ? 'Personalizing from your resume on file.' : 'Just a moment…'}
+                </h1>
+              </div>
+            )}
+
             {state === 'interview' && current && (
               <div className="session-q">
                 <p className="session-kind">{assessment.kind}</p>
@@ -373,6 +408,21 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
             <div className="session-stage">
               {state !== 'interview' && (
                 <div className="session-readout">
+                  {state === 'checking' && (
+                    <>
+                      <p className="sr-big">One moment…</p>
+                      <p className="sr-sub">Checking whether you already have a resume on file.</p>
+                    </>
+                  )}
+                  {state === 'reusing' && (
+                    <>
+                      <p className="sr-big">Using your resume on file: “{fileName}”</p>
+                      <p className="sr-sub">
+                        No need to upload again — from your profile.{' '}
+                        <button type="button" className="auth-swap" onClick={pickFile}>Use a different one instead</button>
+                      </p>
+                    </>
+                  )}
                   {state === 'idle' && (
                     <>
                       <p className="sr-big">No file chosen</p>
@@ -560,7 +610,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
                 </button>
               )}
               <span className="session-spacer" />
-              {state !== 'interview' && (
+              {state !== 'interview' && state !== 'checking' && state !== 'reusing' && (
                 <button
                   type="button"
                   className="chalk-btn"

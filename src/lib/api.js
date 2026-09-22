@@ -124,6 +124,13 @@ export async function getResume(sessionId) {
   return req(`/api/sessions/${sessionId}/resume`);
 }
 
+/** Reuse this student's existing profile resume (ProfileDrawer.jsx) for
+ *  this session instead of uploading again. Throws (404) if they don't
+ *  have a ready one on file yet — the caller falls back to uploadResume. */
+export async function useProfileResumeForSession(sessionId) {
+  return req(`/api/sessions/${sessionId}/resume/from-profile`, { method: 'POST' });
+}
+
 /** Wait for the resume's background pipeline (DeepSeek question generation +
  *  Kokoro pre-render) to reach a terminal state: ready | rejected | failed. */
 export async function pollResume(sessionId, { onTick, timeoutMs = 120000, everyMs = 2000 } = {}) {
