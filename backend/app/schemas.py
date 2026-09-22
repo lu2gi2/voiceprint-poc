@@ -26,6 +26,7 @@ class AnswerOut(BaseModel):
     transcript: str | None = None
     measurements: dict[str, Any] | None = None
     scores: list[dict[str, Any]] | None = None
+    llm_note: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -37,6 +38,23 @@ class SessionOut(BaseModel):
     status: str
     created_at: datetime
     answers: list[AnswerOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class QuestionOut(BaseModel):
+    question_index: int
+    prompt: str
+    target_seconds: int
+    audio_key: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ResumeOut(BaseModel):
+    status: str
+    reject_reason: str | None = None
+    heuristic_score: int | None = None
 
     model_config = {"from_attributes": True}
 

@@ -24,6 +24,14 @@ export const BOARD = {
   accent: '#EBDCA0',
 };
 
+/* Readiness bands, low -> high. An ordered scale, so a single-hue ramp that
+   darkens as readiness rises — not the four unrelated hues the prototype used.
+   Those measured ΔE 4.0 between "placement ready" green and "high
+   intervention" red under deuteranopia, making the two bands that matter most
+   indistinguishable for red-green colourblind staff. Validated as an ordinal
+   ramp against the sand surface. */
+export const BAND_RAMP = ['#6E9AC0', '#4A80AE', '#2A63A0', '#153F6B'];
+
 /* On paper — ink, read against #FBF8EE. */
 export const PAPER = {
   ahead: '#2F6BA5',

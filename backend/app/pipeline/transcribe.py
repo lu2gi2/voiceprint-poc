@@ -22,11 +22,17 @@ def _get_model() -> WhisperModel:
         with _lock:
             if _model is None:
                 s = get_settings()
-                log.info("loading whisper model %s (%s)", s.whisper_model, s.whisper_compute_type)
+                # download_root keeps the weights under the repo rather than
+                # ~/.cache/huggingface — a fresh checkout is self-contained.
+                download_root = s.models_dir / "whisper"
+                download_root.mkdir(parents=True, exist_ok=True)
+                log.info("loading whisper model %s (%s) from %s",
+                         s.whisper_model, s.whisper_compute_type, download_root)
                 _model = WhisperModel(
                     s.whisper_model,
                     device=s.whisper_device,
                     compute_type=s.whisper_compute_type,
+                    download_root=str(download_root),
                 )
     return _model
 

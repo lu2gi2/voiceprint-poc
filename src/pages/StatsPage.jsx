@@ -13,18 +13,17 @@ import {
   BENCHMARK,
 } from '../data/fixtures';
 
-/* Worked out once. Every section reads from this, so nothing can disagree
-   with anything else — and each dimension's score is rendered in exactly one
-   place on the page. */
-const dims = diagnose(longitudinal.skills, BENCHMARK);   // weakest first
-const worst = dims[0];
-const best = dims[dims.length - 1];
-const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
-const behind = dims.filter((d) => !d.ahead).length;
+/* The signed-in student's own dimensions, or the sample roll when there is no
+   session. Worked out once and shared, so no two sections can disagree — and
+   each score is rendered in exactly one place on the page. */
+function skillsFor(user) {
+  if (!user?.history) return longitudinal.skills;
+  return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+}
 
 /* ---------- The board: where you stand, and how you got here ---------- */
 
-function StandingBoard() {
+function StandingBoard({ dims, behind }) {
   return (
     <section className="board-panel" aria-label="Where you stand">
       <div className="frame static">
@@ -134,12 +133,12 @@ function AnswerShape() {
 
 /* ---------- The plan that follows from all of it (PRD §8) ---------- */
 
-function CoachingPlan({ onPractice }) {
+function CoachingPlan({ onPractice, worst }) {
   return (
     <section className="plan" aria-labelledby="planH">
       <div className="plan-in">
         <div className="plan-head">
-          <h2 className="eyebrow" id="planH">YOUR PLAN — {coachingPlan.weakness.toUpperCase()}</h2>
+          <h2 className="eyebrow" id="planH">YOUR PLAN — {worst.name.toUpperCase()}</h2>
           <span>{coachingPlan.why}</span>
         </div>
 
@@ -172,8 +171,13 @@ function CoachingPlan({ onPractice }) {
 
 /* ---------- Page ---------- */
 
-export default function StatsPage({ onBack, onPractice, practiceCount }) {
+export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
   const scrolled = useScrolled();
+  const dims = diagnose(skillsFor(user), BENCHMARK);   // weakest first
+  const worst = dims[0];
+  const best = dims[dims.length - 1];
+  const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
+  const behind = dims.filter((d) => !d.ahead).length;
 
   return (
     <div className="stats">
@@ -181,7 +185,7 @@ export default function StatsPage({ onBack, onPractice, practiceCount }) {
         <button className="back" type="button" onClick={onBack}>
           <i>←</i> BACK TO MY JOURNEY
         </button>
-        <span className="who">{student.name} · {student.year}</span>
+        <span className="who">{user?.name || student.name} · {user?.roll || student.year}</span>
       </header>
 
       <main id="main">
@@ -199,10 +203,10 @@ export default function StatsPage({ onBack, onPractice, practiceCount }) {
           </p>
         </div>
 
-        <StandingBoard />
+        <StandingBoard dims={dims} behind={behind} />
         <EvidenceWall />
         <AnswerShape />
-        <CoachingPlan onPractice={onPractice} />
+        <CoachingPlan onPractice={onPractice} worst={worst} />
       </main>
     </div>
   );

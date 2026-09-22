@@ -1,16 +1,24 @@
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
-from ..models import Answer, InterviewSession, Student
+from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student
 from ..pipeline import process_answer
-from ..schemas import AnswerOut, SessionCreate, SessionOut, SessionSummary
+from ..resume import ExtractError, check_resume_shape, extract_text
+from ..resume.pipeline import process_resume
+from ..schemas import AnswerOut, QuestionOut, ResumeOut, SessionCreate, SessionOut, SessionSummary
 from ..storage import audio_store
 
 router = APIRouter(prefix="/api", tags=["sessions"])
+
+RESUME_SUFFIXES = {".pdf", ".docx"}
+MAX_RESUME_BYTES = 10 * 1024 * 1024
 
 # What the browser can hand us, and the extension to store it under. Chrome
 # records webm/opus, Safari mp4/aac.
@@ -98,6 +106,123 @@ async def upload_answer(
 
     background.add_task(process_answer, answer.id)
     return {"answer_id": answer.id, "status": answer.status, "bytes": len(data)}
+
+
+@router.post("/sessions/{session_id}/resume", response_model=ResumeOut, status_code=202)
+async def upload_resume(
+    session_id: int,
+    background: BackgroundTasks,
+    resume: UploadFile = File(...),
+    db: DbSession = Depends(get_db),
+) -> Resume:
+    """Upload a resume for the technical track.
+
+    Local checks (extract, heuristic) run synchronously since they are
+    fast; a pass queues process_resume as a background task — the DeepSeek
+    call and per-question TTS pre-render take real seconds, the same reason
+    /answers is async. 'processing' means "passed local checks, generating
+    questions"; poll GET .../resume for 'ready' | 'rejected' | 'failed'.
+
+    The original file is never written to persistent storage — it is parsed
+    from a temp file and discarded; only the extracted text is kept, since
+    that (redacted) is what the question-generation call needs.
+    """
+    session = db.get(InterviewSession, session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+
+    suffix = Path(resume.filename or "").suffix.lower()
+    if suffix not in RESUME_SUFFIXES:
+        raise HTTPException(400, f"unsupported file type: {suffix or '(none)'} — upload a PDF or docx")
+
+    data = await resume.read()
+    if not data:
+        raise HTTPException(400, "empty upload")
+    if len(data) > MAX_RESUME_BYTES:
+        raise HTTPException(413, "resume too large")
+
+    tmp_path = Path(tempfile.mkstemp(suffix=suffix)[1])
+    try:
+        tmp_path.write_bytes(data)
+        try:
+            text = extract_text(tmp_path)
+        except ExtractError as exc:
+            _save_resume(db, session, resume.filename or "resume", "rejected", str(exc))
+            raise HTTPException(422, str(exc)) from None
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    if not text:
+        reason = "could not find readable text — please upload a text-based PDF or docx, not a scanned image"
+        _save_resume(db, session, resume.filename or "resume", "rejected", reason)
+        raise HTTPException(422, reason)
+
+    result = check_resume_shape(text)
+    if not result.passed:
+        _save_resume(
+            db, session, resume.filename or "resume", "rejected", result.reason,
+            extracted_text=text, heuristic_score=result.score,
+        )
+        raise HTTPException(422, result.reason)
+
+    record = _save_resume(
+        db, session, resume.filename or "resume", "processing", None,
+        extracted_text=text, heuristic_score=result.score,
+    )
+    background.add_task(process_resume, record.id)
+    return record
+
+
+@router.get("/sessions/{session_id}/resume", response_model=ResumeOut)
+def get_resume(session_id: int, db: DbSession = Depends(get_db)) -> Resume:
+    resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
+    if resume is None:
+        raise HTTPException(404, "no resume uploaded for this session")
+    return resume
+
+
+@router.get("/sessions/{session_id}/questions", response_model=list[QuestionOut])
+def get_questions(session_id: int, db: DbSession = Depends(get_db)) -> list[SessionQuestion]:
+    session = db.get(InterviewSession, session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return session.questions
+
+
+@router.get("/sessions/{session_id}/questions/{index}/audio")
+def get_question_audio(session_id: int, index: int, db: DbSession = Depends(get_db)) -> FileResponse:
+    q = (
+        db.query(SessionQuestion)
+        .filter(SessionQuestion.session_id == session_id, SessionQuestion.question_index == index)
+        .one_or_none()
+    )
+    if q is None or not q.audio_key:
+        raise HTTPException(404, "audio not found")
+    return FileResponse(audio_store.path(q.audio_key), media_type="audio/wav")
+
+
+def _save_resume(
+    db: DbSession,
+    session: InterviewSession,
+    filename: str,
+    status: str,
+    reject_reason: str | None,
+    extracted_text: str | None = None,
+    heuristic_score: int | None = None,
+) -> Resume:
+    """Upsert the one resume a session can have — a re-upload replaces it."""
+    existing = db.query(Resume).filter(Resume.session_id == session.id).one_or_none()
+    if existing is None:
+        existing = Resume(session_id=session.id, original_filename=filename)
+        db.add(existing)
+    existing.original_filename = filename
+    existing.status = status
+    existing.reject_reason = reject_reason
+    existing.extracted_text = extracted_text
+    existing.heuristic_score = heuristic_score
+    db.commit()
+    db.refresh(existing)
+    return existing
 
 
 @router.get("/answers/{answer_id}", response_model=AnswerOut)

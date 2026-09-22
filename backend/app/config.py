@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # swapping in S3 later is one class, not a refactor.
     storage_dir: Path = BACKEND_DIR / "storage"
 
+    # Every downloaded model lives under the repo, not the user's home
+    # directory — a fresh checkout is fully self-contained and `rm -rf
+    # backend/models` is the entire cleanup story. Nothing here should ever
+    # touch ~/.cache.
+    models_dir: Path = BACKEND_DIR / "models"
+
     # base.en keeps a 90-second answer under ~15s on a normal CPU. small.en is
     # noticeably more accurate and roughly 3x slower — worth it once answers
     # are being scored for real rather than demoed.
@@ -38,6 +44,31 @@ class Settings(BaseSettings):
     # How long a student's audio is kept. PRD §16 asks for audio to be retained
     # "only when required"; this is the knob that honours it.
     audio_retention_days: int = 30
+
+    # Kokoro TTS. int8 for CPU speed/size; unlike faster-whisper, kokoro-onnx
+    # does not fetch its own weights, so synthesize.py downloads these to the
+    # cache dir itself on first use, the same "just works, no setup ritual"
+    # experience the whisper side already has.
+    tts_cache_dir: Path = BACKEND_DIR / "models" / "kokoro"
+    tts_model_file: str = "kokoro-v1.0.int8.onnx"
+    tts_voices_file: str = "voices-v1.0.bin"
+    tts_model_url: str = (
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+        "model-files-v1.1/kokoro-v1.0.int8.onnx"
+    )
+    tts_voices_url: str = (
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+        "model-files-v1.1/voices-v1.0.bin"
+    )
+    tts_default_voice: str = "af_heart"
+
+    # DeepSeek — used only for resume-shape double-checking and question
+    # generation (redacted resume text, never audio). None of it is required
+    # for the app to start; a session just cannot generate resume-driven
+    # questions without it.
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
 
 
 @lru_cache

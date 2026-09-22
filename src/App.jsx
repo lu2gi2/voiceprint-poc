@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import AuthPage from './pages/AuthPage';
+import AdminPage from './pages/AdminPage';
 import JourneyPage from './pages/JourneyPage';
 import AssessmentsPage from './pages/AssessmentsPage';
 import SessionPage from './pages/SessionPage';
+import ResumeUploadPage from './pages/ResumeUploadPage';
 import StatsPage from './pages/StatsPage';
 import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
 import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
+import { byId } from './data/assessments';
 
 /* No router — the POC is a small set of views: the journey page, the full
    report behind the blackboard, the assessment picker, and a live session. */
@@ -15,6 +18,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
+
+  // Adopt the signed-in student's own session count once they arrive.
+  useEffect(() => { if (user?.sessions != null) setPracticeCount(user.sessions); }, [user]);
   const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));
   const [freshId, setFreshId] = useState(null);
 
@@ -98,17 +104,35 @@ export default function App() {
   // front door of the demo, not a security boundary.
   if (!user) return <AuthPage onAuthed={setUser} />;
 
+  // Staff get the college view; students get their own journey. Role comes
+  // from the sign-in switch — v1 has nothing to authenticate against, so this
+  // is a demo affordance, not access control.
+  if (user.role === 'admin') return <AdminPage user={user} onSignOut={signOut} />;
+
   return (
     <>
       {view === 'assessments' && (
         <AssessmentsPage
           onBack={() => setView('journey')}
-          onPick={(id) => { setRunningId(id); setView('session'); }}
+          onPick={(id) => {
+            setRunningId(id);
+            setView(byId(id)?.resumeDriven ? 'resume' : 'session');
+          }}
         />
       )}
 
       {view === 'session' && (
         <SessionPage
+          assessmentId={runningId}
+          user={user}
+          onExit={() => { setRunningId(null); setView('assessments'); }}
+          onDone={() => { setRunningId(null); setView('journey'); }}
+          onComplete={finishSession}
+        />
+      )}
+
+      {view === 'resume' && (
+        <ResumeUploadPage
           assessmentId={runningId}
           user={user}
           onExit={() => { setRunningId(null); setView('assessments'); }}
@@ -135,10 +159,11 @@ export default function App() {
           onBack={() => setView('journey')}
           onPractice={openPractice}
           practiceCount={practiceCount}
+          user={user}
         />
       )}
 
-      {view !== 'session' && view !== 'assessments' && (
+      {view !== 'session' && view !== 'assessments' && view !== 'resume' && (
         <footer>
           <span>voiceprint · Speak. Grow. Get Hired.</span>
           <span>Sample data for design preview</span>

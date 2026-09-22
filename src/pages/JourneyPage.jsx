@@ -41,6 +41,7 @@ export default function JourneyPage({
         onGoBoard={scrollToBoard}
         onGoPractice={onPractice}
         onGoReports={() => scrollTo(wallRef)}
+        practiceCount={practiceCount}
       />
 
       <main id="main">
@@ -53,6 +54,7 @@ export default function JourneyPage({
           graphRef={graphRef}
           listRef={listRef}
           onOpenStats={onOpenStats}
+          user={user}
         />
 
         <StickyWall ref={wallRef} onOpenNote={onOpenNote} />

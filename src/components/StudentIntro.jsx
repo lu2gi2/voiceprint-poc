@@ -3,6 +3,7 @@ import { student } from '../data/fixtures';
 
 export default function StudentIntro({ user, practiceCount }) {
   const name = user?.name || student.name;
+  const readiness = user?.overall ?? student.readiness;
 
   return (
     <section className="intro" id="top" aria-label="Welcome">
@@ -10,7 +11,8 @@ export default function StudentIntro({ user, practiceCount }) {
         <p className="eyebrow">GOOD TO SEE YOU</p>
         <h1>Hi, {name}.</h1>
         <p className="meta">
-          {student.year} · {student.branch} · {practiceCount} practices
+          {user?.roll ? `${user.roll} · ` : ''}{user?.year || student.year} ·{' '}
+          {user?.branch || student.branch} · {practiceCount} practices
         </p>
       </div>
 
@@ -19,11 +21,11 @@ export default function StudentIntro({ user, practiceCount }) {
           <Tape rotate={-5} />
           <p className="lab">THIS WEEK</p>
           <p className="num">
-            {student.readiness}
+            {readiness}
             <small>%</small>
           </p>
           <p className="what">Interview Readiness</p>
-          <Pencil pct={student.readiness} />
+          <Pencil pct={readiness} />
         </div>
 
         <div className="focus">

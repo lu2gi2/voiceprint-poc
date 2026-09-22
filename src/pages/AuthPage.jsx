@@ -1,5 +1,28 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ChalkField from '../components/ChalkField';
+import { findStudent, findAdmin, DEMO_PASSWORD } from '../data/students.js';
+
+/* Two roles share one board — the chalk gets rubbed out and rewritten rather
+   than sending an admin to a separate page. */
+const ROLES = {
+  student: { label: 'Student', eyebrowNew: 'FIRST TIME HERE' },
+  admin:   { label: 'Admin',   eyebrowNew: 'PLACEMENT CELL' },
+};
+
+const ADMIN_COPY = {
+  signin: {
+    title: 'Placement cell sign in.',
+    sub: 'Department readiness, intervention lists and training impact.',
+    cta: 'OPEN ADMIN PORTAL',
+    swap: 'Need a staff account? Ask your placement officer',
+  },
+  register: {
+    title: 'Request staff access.',
+    sub: 'Admin accounts are issued by the placement cell, not self-served.',
+    cta: 'REQUEST ACCESS',
+    swap: '← Back to sign in',
+  },
+};
 
 const COPY = {
   signin: {
@@ -16,37 +39,74 @@ const COPY = {
   },
 };
 
-/* Presence only — no format or length rules. There is nothing to sign in to,
-   so any email and any password are accepted by design; enforcing a shape
-   would just be friction in a demo. */
-function validate(mode, values) {
+/* Which fields are simply blank — worth saying, because the reader already
+   knows they left one empty. Nothing here discloses anything. */
+function missingFields(values, isAdmin) {
   const errors = {};
-  if (mode === 'register' && !values.name.trim()) {
-    errors.name = 'Tell us what to call you.';
+  if (!values.username.trim()) {
+    errors.username = isAdmin ? 'Enter your staff username.' : 'Enter your roll number.';
   }
-  if (!values.email.trim()) errors.email = 'An email is needed to find your page.';
   if (!values.password) errors.password = 'A password is needed.';
   return errors;
 }
+
+/* Whether the credentials are actually good.
+ *
+ * Deliberately returns one answer for "no such user" and "wrong password".
+ * Telling them apart lets someone enumerate which roll numbers are real by
+ * reading the error text — the failure mode the login-page guides all warn
+ * about.
+ *
+ * Worth being straight about the limit: with no backend, the whole roll and
+ * the password itself ship inside the JS bundle, so an attacker reads them
+ * from source rather than guessing. This keeps the right shape for when a
+ * server does the checking; it is not a security boundary today.
+ */
+function authenticate(values, isAdmin) {
+  const who = values.username.trim();
+  const account = isAdmin ? findAdmin(who) : findStudent(who);
+  if (!account || values.password !== DEMO_PASSWORD) return null;
+  return account;
+}
+
+/* Failed attempts cost time. Client-side throttling is bypassable by anyone
+   willing to open devtools, so this is the pattern rather than the protection
+   — the real version belongs on the server. */
+const FREE_ATTEMPTS = 5;
+const COOLDOWN_MS = 10000;
 
 /**
  * The blackboard asks; you write your answer on it. Sign-in and registration
  * are the same board with the chalk rubbed out and rewritten, rather than two
  * separate pages.
  *
- * Nothing here authenticates — the POC has no backend. Any email and any
- * password get you in, and the board says so rather than pretending otherwise.
+ * Credentials are checked against the roll in `data/students` — see
+ * `authenticate` above for what that does, and for what it does not buy while
+ * the check runs in the browser.
  */
 export default function AuthPage({ onAuthed }) {
+  const [role, setRole] = useState('student');
   const [mode, setMode] = useState('signin');
-  const [values, setValues] = useState({ name: '', email: '', password: '' });
+  const [values, setValues] = useState({ username: '', password: '' });
   const [errors, setErrors] = useState({});
-  const copy = COPY[mode];
+  const [formError, setFormError] = useState(null);
+  const [fails, setFails] = useState(0);
+  const [cooldown, setCooldown] = useState(0);
+
+  // Tick the cooldown down so the button can say how long is left.
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+  const isAdmin = role === 'admin';
+  const copy = (isAdmin ? ADMIN_COPY : COPY)[mode];
 
   const set = (key) => (v) => {
     setValues((prev) => ({ ...prev, [key]: v }));
     // Clear the correction as soon as they start fixing it.
     setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+    setFormError(null);
   };
 
   const swapMode = () => {
@@ -54,17 +114,37 @@ export default function AuthPage({ onAuthed }) {
     setErrors({});
   };
 
+  // Staff accounts are issued, so the admin side only ever shows sign-in.
+  useEffect(() => { if (isAdmin) setMode('signin'); }, [isAdmin]);
+
   const submit = (e) => {
     e.preventDefault();
-    const found = validate(mode, values);
-    setErrors(found);
-    if (Object.keys(found).length) return;
+    if (cooldown > 0) return;
 
-    const name = mode === 'register'
-      ? values.name.trim()
-      : values.email.trim().split('@')[0].replace(/[._-]+/g, ' ');
-    const display = name.charAt(0).toUpperCase() + name.slice(1);
-    onAuthed({ name: display, email: values.email.trim() });
+    const blanks = missingFields(values, isAdmin);
+    setErrors(blanks);
+    setFormError(null);
+    if (Object.keys(blanks).length) return;
+
+    const account = authenticate(values, isAdmin);
+    if (!account) {
+      const n = fails + 1;
+      setFails(n);
+      if (n >= FREE_ATTEMPTS) setCooldown(COOLDOWN_MS / 1000);
+      setFormError(isAdmin
+        ? 'That username and password do not match a staff account.'
+        : 'That roll number and password do not match.');
+      return;
+    }
+
+    setFails(0);
+    if (isAdmin) {
+      onAuthed({ role: 'admin', name: account.name, username: account.username, title: account.role });
+    } else {
+      // The whole record travels with the session, so the portal renders this
+      // student's own scores rather than a stand-in.
+      onAuthed({ role: 'student', ...account });
+    }
   };
 
   return (
@@ -91,35 +171,61 @@ export default function AuthPage({ onAuthed }) {
           <div className="board auth-board">
             <div className="smudges" aria-hidden="true" />
             <form className="auth-form" onSubmit={submit} noValidate>
-              <p className="auth-eyebrow">{mode === 'signin' ? 'WELCOME BACK' : 'FIRST TIME HERE'}</p>
+              <div className="role-switch" role="radiogroup" aria-label="Sign in as">
+                {Object.entries(ROLES).map(([key, r]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={role === key}
+                    className={`role-opt${role === key ? ' on' : ''}`}
+                    onClick={() => { setRole(key); setErrors({}); }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+
+              <p className="auth-eyebrow">
+                {mode === 'signin'
+                  ? (isAdmin ? 'COLLEGE OPERATIONS' : 'WELCOME BACK')
+                  : ROLES[role].eyebrowNew}
+              </p>
               <h1 className="auth-title chalk">{copy.title}</h1>
               <p className="auth-sub">{copy.sub}</p>
 
               <div className="auth-fields">
-                {mode === 'register' && (
-                  <ChalkField
-                    label="your name" value={values.name} onChange={set('name')}
-                    error={errors.name} autoComplete="name" placeholder="Aditi" seed={1}
-                  />
-                )}
                 <ChalkField
-                  label="email" type="email" value={values.email} onChange={set('email')}
-                  error={errors.email} autoComplete="email" placeholder="you@college.edu" seed={2}
+                  label={isAdmin ? 'staff username' : 'roll number'}
+                  value={values.username} onChange={set('username')}
+                  error={errors.username} autoComplete="username"
+                  seed={2}
                 />
                 <ChalkField
                   label="password" type="password" value={values.password} onChange={set('password')}
                   error={errors.password} seed={3}
                   autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                  placeholder="anything works"
                 />
               </div>
 
+              {/* One message for every wrong-credential case, so the text never
+                  says which half was wrong. */}
+              {formError && (
+                <p className="auth-formerr" role="alert">
+                  <span aria-hidden="true">✗</span> {formError}
+                  {fails >= FREE_ATTEMPTS && cooldown > 0 && (
+                    <em> Too many attempts — try again in {cooldown}s.</em>
+                  )}
+                </p>
+              )}
+
               <div className="auth-actions">
-                <button type="submit" className="chalk-btn">{copy.cta} <i>→</i></button>
-                <button type="button" className="auth-swap" onClick={swapMode}>{copy.swap}</button>
+                <button type="submit" className="chalk-btn" disabled={cooldown > 0}>
+                  {cooldown > 0 ? `WAIT ${cooldown}s` : copy.cta} <i>→</i>
+                </button>
+
               </div>
 
-              <p className="auth-demo">Demo — no account is created and nothing is stored. Any email and any password will get you in.</p>
             </form>
 
             <div className="dust" aria-hidden="true" />
