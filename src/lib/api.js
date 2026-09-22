@@ -54,6 +54,17 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
   return req(`/api/sessions/${sessionId}/answers`, { method: 'POST', body: form }, { timeout: 60000 });
 }
 
+/** Upload a resume for the technical-resume track. Throws with the
+ *  backend's rejection reason on 400/422 so the caller can show it. */
+export async function uploadResume(sessionId, file) {
+  const form = new FormData();
+  form.append('resume', file, file.name);
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/resume`, { method: 'POST', body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  return body;
+}
+
 export async function getAnswer(answerId) {
   return req(`/api/answers/${answerId}`);
 }
