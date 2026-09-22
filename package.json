@@ -10,9 +10,10 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289",
     "react": "latest",
-    "react-dom": "latest"
-  },
-  "devDependencies": {}
+    "react-dom": "latest",
+    "vite": "latest"
+  }
 }
