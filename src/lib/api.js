@@ -57,6 +57,15 @@ export async function checkHealth() {
   }
 }
 
+// None of the POST calls below set an explicit Content-Type: application/
+// json header. The browser then defaults to text/plain for a string body,
+// which keeps these CORS "simple requests" (no preflight OPTIONS) — Catalyst
+// AppSail's gateway currently swallows preflight OPTIONS requests before they
+// reach the app container, so avoiding preflight entirely is the workaround
+// until that's fixed. The matching backend handlers parse the body manually
+// to match (see api/auth.py, api/sessions.py) since FastAPI's automatic JSON
+// parsing only kicks in for Content-Type: application/json.
+
 /** Student or admin login. Throws (with err.status/err.detail set by req())
  *  on a 401 — the caller renders that as the form's error, same generic
  *  message for "no such account" and "wrong password" that the backend
@@ -64,7 +73,6 @@ export async function checkHealth() {
 export async function login({ role, username, password }) {
   return req('/api/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ role, username, password }),
   });
 }
@@ -74,7 +82,6 @@ export async function login({ role, username, password }) {
 export async function registerStudent({ rollNumber, email, name, password }) {
   return req('/api/auth/register', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roll_number: rollNumber, email, name, password }),
   });
 }
@@ -82,7 +89,6 @@ export async function registerStudent({ rollNumber, email, name, password }) {
 export async function createSession({ studentId, assessment }) {
   return req('/api/sessions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       student_id: studentId,
       assessment_id: assessment.id,

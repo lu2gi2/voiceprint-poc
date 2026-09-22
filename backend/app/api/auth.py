@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session as DbSession
 
 from ..auth import hash_password, verify_password
@@ -16,7 +16,11 @@ BAD_CREDENTIALS = "That username and password do not match an account."
 
 
 @router.post("/register", response_model=AccountOut, status_code=201)
-def register_student(payload: StudentRegister, db: DbSession = Depends(get_db)) -> AccountOut:
+async def register_student(request: Request, db: DbSession = Depends(get_db)) -> AccountOut:
+    # Body parsed manually rather than via `payload: StudentRegister` — see
+    # create_session's docstring in api/sessions.py for why (Catalyst AppSail
+    # CORS preflight workaround).
+    payload = StudentRegister.model_validate_json(await request.body())
     if db.query(Student).filter(Student.roll_number == payload.roll_number).one_or_none() is not None:
         raise HTTPException(409, "That roll number is already registered.")
     if db.query(Student).filter(Student.email == payload.email).one_or_none() is not None:
@@ -35,7 +39,8 @@ def register_student(payload: StudentRegister, db: DbSession = Depends(get_db)) 
 
 
 @router.post("/login", response_model=AccountOut)
-def login(payload: LoginRequest, db: DbSession = Depends(get_db)) -> AccountOut:
+async def login(request: Request, db: DbSession = Depends(get_db)) -> AccountOut:
+    payload = LoginRequest.model_validate_json(await request.body())
     if payload.role == "student":
         student = db.query(Student).filter(Student.roll_number == payload.username).one_or_none()
         if student is None or not verify_password(payload.password, student.password_hash):

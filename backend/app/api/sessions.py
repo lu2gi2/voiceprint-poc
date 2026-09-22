@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
@@ -41,12 +41,21 @@ def _suffix(mime: str) -> str:
 
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
-def create_session(payload: SessionCreate, db: DbSession = Depends(get_db)) -> InterviewSession:
+async def create_session(request: Request, db: DbSession = Depends(get_db)) -> InterviewSession:
     """Open a session for an already-registered, already-authenticated
     student (see api/auth.py). Used to upsert a Student from whatever name/
     email the request body claimed - identity by assertion, no password
     involved - now that real accounts exist, session creation trusts
-    student_id instead."""
+    student_id instead.
+
+    Body parsed manually rather than via `payload: SessionCreate` directly —
+    FastAPI's automatic JSON parsing keys off `Content-Type: application/
+    json`, but the client deliberately omits that header so the browser
+    sends this as a CORS "simple request" (no preflight OPTIONS). Catalyst
+    AppSail's gateway swallows preflight OPTIONS requests before they reach
+    the container, so avoiding preflight entirely is the workaround.
+    """
+    payload = SessionCreate.model_validate_json(await request.body())
     if db.get(Student, payload.student_id) is None:
         raise HTTPException(404, "student not found")
 
