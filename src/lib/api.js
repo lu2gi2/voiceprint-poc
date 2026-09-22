@@ -57,12 +57,34 @@ export async function checkHealth() {
   }
 }
 
-export async function createSession({ student, assessment }) {
+/** Student or admin login. Throws (with err.status/err.detail set by req())
+ *  on a 401 — the caller renders that as the form's error, same generic
+ *  message for "no such account" and "wrong password" that the backend
+ *  already enforces (see api/auth.py). */
+export async function login({ role, username, password }) {
+  return req('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role, username, password }),
+  });
+}
+
+/** Student self-registration (admins are issued, not self-served - see
+ *  AuthPage.jsx). Throws on 409 if the roll number/email is already taken. */
+export async function registerStudent({ rollNumber, email, name, password }) {
+  return req('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roll_number: rollNumber, email, name, password }),
+  });
+}
+
+export async function createSession({ studentId, assessment }) {
   return req('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      student: { email: student.email, name: student.name },
+      student_id: studentId,
       assessment_id: assessment.id,
       assessment_title: assessment.title,
     }),

@@ -38,10 +38,7 @@ export default function SessionPage({ assessmentId, user, onExit, onDone, onComp
       if (cancelled) return;
       if (!health || !health.ok || health.status !== 'ok') { setOffline(true); return; }
       try {
-        const s = await createSession({
-          student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
-          assessment,
-        });
+        const s = await createSession({ studentId: user?.id, assessment });
         if (!cancelled) remoteId.current = s.id;
       } catch {
         if (!cancelled) setOffline(true);

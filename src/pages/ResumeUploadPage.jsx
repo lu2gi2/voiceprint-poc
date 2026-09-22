@@ -70,10 +70,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit, onDone, o
       return null;
     }
     try {
-      const s = await createSession({
-        student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
-        assessment,
-      });
+      const s = await createSession({ studentId: user?.id, assessment });
       remoteId.current = s.id;
       setOffline(false);
       setServiceError(null);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import ChalkField from '../components/ChalkField';
-import { findStudent, findAdmin, DEMO_PASSWORD } from '../data/students.js';
+import { login, registerStudent } from '../lib/api';
 
 /* Two roles share one board — the chalk gets rubbed out and rewritten rather
    than sending an admin to a separate page. */
@@ -41,32 +41,37 @@ const COPY = {
 
 /* Which fields are simply blank — worth saying, because the reader already
    knows they left one empty. Nothing here discloses anything. */
-function missingFields(values, isAdmin) {
+function missingFields(values, isAdmin, isRegister) {
   const errors = {};
   if (!values.username.trim()) {
     errors.username = isAdmin ? 'Enter your staff username.' : 'Enter your roll number.';
   }
   if (!values.password) errors.password = 'A password is needed.';
+  if (isRegister && !isAdmin) {
+    if (!values.name.trim()) errors.name = 'Enter your name.';
+    if (!values.email.trim()) errors.email = 'Enter your email.';
+    if (values.password && values.password.length < 8) {
+      errors.password = 'Use at least 8 characters.';
+    }
+  }
   return errors;
 }
 
-/* Whether the credentials are actually good.
+/* Turns a failed login/register call into the one line shown on the form.
  *
- * Deliberately returns one answer for "no such user" and "wrong password".
- * Telling them apart lets someone enumerate which roll numbers are real by
- * reading the error text — the failure mode the login-page guides all warn
- * about.
- *
- * Worth being straight about the limit: with no backend, the whole roll and
- * the password itself ship inside the JS bundle, so an attacker reads them
- * from source rather than guessing. This keeps the right shape for when a
- * server does the checking; it is not a security boundary today.
+ * Login already returns one message for "no such account" and "wrong
+ * password" from the server (api/auth.py) — telling them apart would let
+ * someone enumerate real roll numbers/usernames from the error text, so
+ * this does not add its own guess on top of that.
  */
-function authenticate(values, isAdmin) {
-  const who = values.username.trim();
-  const account = isAdmin ? findAdmin(who) : findStudent(who);
-  if (!account || values.password !== DEMO_PASSWORD) return null;
-  return account;
+function describeAuthError(err, isAdmin) {
+  if (err.status === 401) {
+    return isAdmin
+      ? 'That username and password do not match a staff account.'
+      : 'That roll number and password do not match.';
+  }
+  if (err.status === 409) return err.detail || 'That account already exists.';
+  return 'Could not reach the server. Check your connection and try again.';
 }
 
 /* Failed attempts cost time. Client-side throttling is bypassable by anyone
@@ -80,18 +85,19 @@ const COOLDOWN_MS = 10000;
  * are the same board with the chalk rubbed out and rewritten, rather than two
  * separate pages.
  *
- * Credentials are checked against the roll in `data/students` — see
- * `authenticate` above for what that does, and for what it does not buy while
- * the check runs in the browser.
+ * Credentials are checked against the real backend (api/auth.py) — a
+ * roll number/username and password, hashed server-side, nothing shipped in
+ * the bundle to read.
  */
 export default function AuthPage({ onAuthed }) {
   const [role, setRole] = useState('student');
   const [mode, setMode] = useState('signin');
-  const [values, setValues] = useState({ username: '', password: '' });
+  const [values, setValues] = useState({ username: '', password: '', name: '', email: '' });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [fails, setFails] = useState(0);
   const [cooldown, setCooldown] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
 
   // Tick the cooldown down so the button can say how long is left.
   useEffect(() => {
@@ -112,38 +118,57 @@ export default function AuthPage({ onAuthed }) {
   const swapMode = () => {
     setMode((m) => (m === 'signin' ? 'register' : 'signin'));
     setErrors({});
+    setFormError(null);
   };
 
   // Staff accounts are issued, so the admin side only ever shows sign-in.
   useEffect(() => { if (isAdmin) setMode('signin'); }, [isAdmin]);
 
-  const submit = (e) => {
-    e.preventDefault();
-    if (cooldown > 0) return;
+  // The shape every page downstream reads (StudentIntro, SessionPage,
+  // AdminPage, ...) — roll is an alias of roll_number for the components
+  // that already expected the fixture roster's field name.
+  const toUser = (account) => ({
+    role: account.role,
+    id: account.id,
+    name: account.name,
+    email: account.email,
+    username: account.username,
+    roll: account.roll_number,
+    roll_number: account.roll_number,
+  });
 
-    const blanks = missingFields(values, isAdmin);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (cooldown > 0 || submitting) return;
+
+    const isRegister = mode === 'register' && !isAdmin;
+    const blanks = missingFields(values, isAdmin, isRegister);
     setErrors(blanks);
     setFormError(null);
     if (Object.keys(blanks).length) return;
 
-    const account = authenticate(values, isAdmin);
-    if (!account) {
+    setSubmitting(true);
+    try {
+      const account = isRegister
+        ? await registerStudent({
+            rollNumber: values.username.trim(),
+            email: values.email.trim(),
+            name: values.name.trim(),
+            password: values.password,
+          })
+        : await login({ role, username: values.username.trim(), password: values.password });
+
+      setFails(0);
+      // The whole record travels with the session, so the portal renders
+      // this account's own data rather than a stand-in.
+      onAuthed(toUser(account));
+    } catch (err) {
       const n = fails + 1;
       setFails(n);
       if (n >= FREE_ATTEMPTS) setCooldown(COOLDOWN_MS / 1000);
-      setFormError(isAdmin
-        ? 'That username and password do not match a staff account.'
-        : 'That roll number and password do not match.');
-      return;
-    }
-
-    setFails(0);
-    if (isAdmin) {
-      onAuthed({ role: 'admin', name: account.name, username: account.username, title: account.role });
-    } else {
-      // The whole record travels with the session, so the portal renders this
-      // student's own scores rather than a stand-in.
-      onAuthed({ role: 'student', ...account });
+      setFormError(describeAuthError(err, isAdmin));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -195,6 +220,20 @@ export default function AuthPage({ onAuthed }) {
               <p className="auth-sub">{copy.sub}</p>
 
               <div className="auth-fields">
+                {mode === 'register' && !isAdmin && (
+                  <>
+                    <ChalkField
+                      label="name" value={values.name} onChange={set('name')}
+                      error={errors.name} autoComplete="name"
+                      seed={4}
+                    />
+                    <ChalkField
+                      label="email" type="email" value={values.email} onChange={set('email')}
+                      error={errors.email} autoComplete="email"
+                      seed={5}
+                    />
+                  </>
+                )}
                 <ChalkField
                   label={isAdmin ? 'staff username' : 'roll number'}
                   value={values.username} onChange={set('username')}
@@ -220,10 +259,15 @@ export default function AuthPage({ onAuthed }) {
               )}
 
               <div className="auth-actions">
-                <button type="submit" className="chalk-btn" disabled={cooldown > 0}>
-                  {cooldown > 0 ? `WAIT ${cooldown}s` : copy.cta} <i>→</i>
+                <button type="submit" className="chalk-btn" disabled={cooldown > 0 || submitting}>
+                  {cooldown > 0 ? `WAIT ${cooldown}s` : submitting ? 'ONE MOMENT…' : copy.cta} <i>→</i>
                 </button>
 
+                {!isAdmin && (
+                  <button type="button" className="auth-swap" onClick={swapMode}>
+                    {copy.swap}
+                  </button>
+                )}
               </div>
 
             </form>
