@@ -210,6 +210,11 @@ def get_worklist(limit: int = 10, db: DbSession = Depends(get_db)) -> list[dict]
     overall = _overall_scores(latest)
     never_started, over_dormant_days = _dormant_students(db, students)
     dormant_ids = {s.id for s in never_started + over_dormant_days}
+    last_activity = _last_activity(db)
+    now = datetime.now(timezone.utc)
+    session_counts: dict[int, int] = defaultdict(int)
+    for student_id, in db.query(InterviewSession.student_id).filter(InterviewSession.status == "complete"):
+        session_counts[student_id] += 1
 
     band_order = [b["key"] for b in BANDS]
     ranked = []
@@ -226,6 +231,8 @@ def get_worklist(limit: int = 10, db: DbSession = Depends(get_db)) -> list[dict]
             "id": s.id, "roll": s.roll_number, "name": s.name, "dept": s.department,
             "overall": overall[s.id], "gap": next_band["min"] - overall[s.id],
             "next_band": next_band["label"], "weakest": weakest,
+            "sessions": session_counts.get(s.id, 0),
+            "days_since": (now - last_activity[s.id]).days if s.id in last_activity else None,
         })
     ranked.sort(key=lambda r: (r["gap"], -r["overall"]))
 
