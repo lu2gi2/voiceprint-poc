@@ -84,16 +84,31 @@ def _last_activity(db: DbSession) -> dict[int, datetime | None]:
     return last
 
 
+def _dormant_students(db: DbSession, students: list[Student]) -> tuple[list[Student], list[Student]]:
+    last_activity = _last_activity(db)
+    now = datetime.now(timezone.utc)
+    never_started = [s for s in students if s.id not in last_activity]
+    over_dormant_days = [
+        s for s in students
+        if s.id in last_activity and (now - last_activity[s.id]) > timedelta(days=DORMANT_DAYS)
+    ]
+    return never_started, over_dormant_days
+
+
 @router.get("/overview")
 def get_overview(db: DbSession = Depends(get_db)) -> dict:
     students = db.query(Student).filter(Student.department.isnot(None)).all()
     latest = _latest_dimension_values(db)
     overall = _overall_scores(latest)
-    last_activity = _last_activity(db)
-    now = datetime.now(timezone.utc)
 
     scored_students = [s for s in students if s.id in overall]
     overall_readiness = round(sum(overall[s.id] for s in scored_students) / len(scored_students)) if scored_students else 0
+
+    never_started, over_dormant_days = _dormant_students(db, students)
+    dormant_students = never_started + over_dormant_days
+    dormant_by_dept: dict[str, int] = defaultdict(int)
+    for s in dormant_students:
+        dormant_by_dept[s.department] += 1
 
     dept_rows = []
     for dept in DEPARTMENTS:
@@ -105,6 +120,8 @@ def get_overview(db: DbSession = Depends(get_db)) -> dict:
             "count": len([s for s in students if s.department == dept["code"]]),
             "readiness": readiness,
             "lift": readiness - overall_readiness if in_dept else 0,
+            "flagged": len([s for s in in_dept if overall[s.id] < NEEDS_INTERVENTION_BELOW]),
+            "quiet": dormant_by_dept.get(dept["code"], 0),
         })
 
     # Averaged across the whole roster, weakest first - what the "what's
@@ -117,16 +134,6 @@ def get_overview(db: DbSession = Depends(get_db)) -> dict:
         ({"name": name, "avg": round(sum(vals) / len(vals))} for name, vals in dim_totals.items()),
         key=lambda d: d["avg"],
     )
-
-    never_started = [s for s in students if s.id not in last_activity]
-    over_dormant_days = [
-        s for s in students
-        if s.id in last_activity and (now - last_activity[s.id]) > timedelta(days=DORMANT_DAYS)
-    ]
-    dormant_students = never_started + over_dormant_days
-    dormant_by_dept: dict[str, int] = defaultdict(int)
-    for s in dormant_students:
-        dormant_by_dept[s.department] += 1
 
     return {
         "students_total": len(students),
@@ -172,15 +179,17 @@ def get_band_roster(key: str, db: DbSession = Depends(get_db)) -> list[dict]:
         raise HTTPException(404, "unknown band")
 
     students = db.query(Student).filter(Student.department.isnot(None)).all()
-    overall = _overall_scores(_latest_dimension_values(db))
+    latest = _latest_dimension_values(db)
+    overall = _overall_scores(latest)
 
     roster = [
         {
             "id": s.id,
+            "roll": s.roll_number,
             "name": s.name,
-            "roll_number": s.roll_number,
-            "department": s.department,
+            "dept": s.department,
             "year": s.year,
+            "scores": latest.get(s.id, {}),
             "overall": overall[s.id],
         }
         for s in students
@@ -188,3 +197,50 @@ def get_band_roster(key: str, db: DbSession = Depends(get_db)) -> list[dict]:
     ]
     roster.sort(key=lambda r: r["overall"], reverse=True)
     return roster
+
+
+@router.get("/worklist")
+def get_worklist(limit: int = 10, db: DbSession = Depends(get_db)) -> list[dict]:
+    """Closest to moving up a band, dealt out one department at a time so
+    ten students from a single department at the same mark can't crowd out
+    everyone else - same shape as the old students.js worklist(), now
+    computed over the real roster instead of the client-side generator."""
+    students = db.query(Student).filter(Student.department.isnot(None)).all()
+    latest = _latest_dimension_values(db)
+    overall = _overall_scores(latest)
+    never_started, over_dormant_days = _dormant_students(db, students)
+    dormant_ids = {s.id for s in never_started + over_dormant_days}
+
+    band_order = [b["key"] for b in BANDS]
+    ranked = []
+    for s in students:
+        if s.id not in overall or s.id in dormant_ids:
+            continue
+        band_key = _band_for(overall[s.id])
+        if band_key == band_order[-1]:
+            continue  # already in the top band - nowhere to move up to
+        next_band = BANDS[band_order.index(band_key) + 1]
+        dims = latest.get(s.id, {})
+        weakest = min(dims, key=dims.get) if dims else None
+        ranked.append({
+            "id": s.id, "roll": s.roll_number, "name": s.name, "dept": s.department,
+            "overall": overall[s.id], "gap": next_band["min"] - overall[s.id],
+            "next_band": next_band["label"], "weakest": weakest,
+        })
+    ranked.sort(key=lambda r: (r["gap"], -r["overall"]))
+
+    queues = {d["code"]: [r for r in ranked if r["dept"] == d["code"]] for d in DEPARTMENTS}
+    out = []
+    i = 0
+    while len(out) < limit:
+        added = False
+        for code in queues:
+            if len(out) >= limit:
+                break
+            if i < len(queues[code]):
+                out.append(queues[code][i])
+                added = True
+        if not added:
+            break
+        i += 1
+    return out

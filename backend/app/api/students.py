@@ -156,3 +156,15 @@ def get_student_resume(student_id: int, db: DbSession = Depends(get_db)) -> Stud
     if resume is None:
         raise HTTPException(404, "no resume uploaded for this student")
     return resume
+
+
+@router.delete("/{student_id}/resume")
+def delete_student_resume(student_id: int, db: DbSession = Depends(get_db)) -> dict:
+    # 200 + {}, not 204 - the frontend's req() helper always parses a JSON
+    # body, and a 204 has none.
+    resume = db.query(StudentResume).filter(StudentResume.student_id == student_id).one_or_none()
+    if resume is None:
+        raise HTTPException(404, "no resume uploaded for this student")
+    db.delete(resume)
+    db.commit()
+    return {}
