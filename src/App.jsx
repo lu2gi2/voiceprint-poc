@@ -10,9 +10,47 @@ import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
 import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
 import { byId } from './data/assessments';
+import { getStudentProfile, getStudentSessions, getStudentHistory } from './lib/api';
 
 /* No router — the POC is a small set of views: the journey page, the full
    report behind the blackboard, the assessment picker, and a live session. */
+
+const DEPARTMENT_NAMES = { CSE: 'Computer Science', IT: 'Information Tech', ECE: 'Electronics', EEE: 'Electrical' };
+
+const relativeDay = (iso) => {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+const mmss = (seconds) =>
+  `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+
+/** Real session history -> the RECENT fixture's row shape, so JourneyPage's
+ *  activity list keeps working unchanged whether the row came from a fixture
+ *  seed or a real completed session. */
+const sessionToRecentRow = (s, i) => ({
+  id: `real-${s.id}`,
+  t: s.assessment_title.toUpperCase(),
+  q: `${s.answers_count} answer${s.answers_count === 1 ? '' : 's'} recorded`,
+  w: relativeDay(s.created_at),
+  d: mmss(s.total_seconds),
+  rot: i % 2 ? 0.9 : -0.8,
+  dx: 0,
+});
+
+/** Real per-dimension history rows -> {dimension: [values in order]}, the
+ *  shape GrowthGraph/StatsPage already expect from user.history. */
+const scoresToHistory = (scores) => {
+  const byDim = {};
+  for (const s of scores) (byDim[s.dimension] ??= []).push(s.value);
+  return byDim;
+};
+
+const overallFromHistory = (history) => {
+  const latest = Object.values(history).map((vals) => vals[vals.length - 1]).filter((v) => v != null);
+  return latest.length ? Math.round(latest.reduce((a, v) => a + v, 0) / latest.length) : null;
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -23,6 +61,42 @@ export default function App() {
   useEffect(() => { if (user?.sessions != null) setPracticeCount(user.sessions); }, [user]);
   const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));
   const [freshId, setFreshId] = useState(null);
+
+  // Once a student is signed in, replace the fixture profile/journey/stats
+  // data with what the backend actually has for them - a fresh account with
+  // no sessions yet keeps the fixture's sample numbers rather than showing
+  // zeros, same "sample data until there's real data" fallback the rest of
+  // the app already uses.
+  useEffect(() => {
+    if (!user || user.role !== 'student') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [profile, sessions, historyRes] = await Promise.all([
+          getStudentProfile(user.id),
+          getStudentSessions(user.id, { limit: 4 }),
+          getStudentHistory(user.id),
+        ]);
+        if (cancelled) return;
+
+        const history = scoresToHistory(historyRes.scores);
+        setUser((prev) => (prev ? {
+          ...prev,
+          year: profile.year || prev.year,
+          branch: profile.department ? DEPARTMENT_NAMES[profile.department] || profile.department : prev.branch,
+          sessions: profile.sessions_completed,
+          history: Object.keys(history).length ? history : prev.history,
+          overall: overallFromHistory(history) ?? prev.overall,
+        } : prev));
+
+        if (sessions.length) setRecent(sessions.map(sessionToRecentRow));
+      } catch {
+        // Backend unreachable or a blip - the fixture fallback already
+        // covers this; nothing further to do.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.role]);
 
   const [openNote, setOpenNote] = useState(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
@@ -172,6 +246,7 @@ export default function App() {
 
       <NoteDetailDialog
         noteKey={openNote}
+        user={user}
         onClose={() => setOpenNote(null)}
         onPractice={openQuickDrill}
       />

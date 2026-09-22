@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pencil, Pin, Tape, Underline } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
 import DimensionBoard from '../components/charts/DimensionBoard';
 import StarDropoff from '../components/charts/StarDropoff';
 import { diagnose, signed } from '../lib/viz';
+import { getStudentSessions, getSummary } from '../lib/api';
 import {
   student,
   longitudinal,
@@ -19,6 +20,47 @@ import {
 function skillsFor(user) {
   if (!user?.history) return longitudinal.skills;
   return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+}
+
+const EV_COLORS = ['var(--y)', 'var(--b)', 'var(--g)', 'var(--p)', 'var(--l)'];
+
+/** The most recent completed session's real per-dimension evidence
+ *  (GET /sessions/{id}/summary already carries exactly this shape - label/
+ *  value measurement pairs behind each score) in place of the fixture
+ *  `evidence` array. Cosmetic layout fields (color/rotation/offset) are
+ *  generated rather than hardcoded, since real dimension names/counts vary
+ *  by which tracks the student actually took. */
+function useRealEvidence(user) {
+  const [real, setReal] = useState(null);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await getStudentSessions(user.id, { limit: 5 });
+        const latestComplete = sessions.find((s) => s.status === 'complete');
+        if (!latestComplete) return;
+        const summary = await getSummary(latestComplete.id);
+        if (cancelled || !summary.dimensions?.length) return;
+        setReal(summary.dimensions.map((d, i) => ({
+          key: d.dimension.toLowerCase().replace(/\s+/g, '-'),
+          title: d.dimension.toUpperCase(),
+          score: d.value,
+          c: EV_COLORS[i % EV_COLORS.length],
+          rot: i % 2 ? 1.8 : -2.2,
+          dy: (i % 3) * 14,
+          measures: (d.evidence || []).map((e) => [e.label, e.value]),
+          fix: d.recommendation,
+        })));
+      } catch {
+        // fixture fallback already covers a blip or an unreachable backend
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  return real;
 }
 
 /* ---------- The board: where you stand, and how you got here ---------- */
@@ -57,7 +99,7 @@ function StandingBoard({ dims, behind }) {
 
 /* ---------- Evidence behind each score (PRD §7) ---------- */
 
-function EvidenceWall() {
+function EvidenceWall({ items }) {
   return (
     <>
       <div className="rail" aria-hidden="true" />
@@ -76,7 +118,7 @@ function EvidenceWall() {
           </div>
 
           <div className="ev-grid">
-            {evidence.map((e, i) => (
+            {items.map((e, i) => (
               <article key={e.key} className="ev-note"
                 style={{ '--c': e.c, '--rot': `${e.rot}deg`, '--dy': `${e.dy}px` }}>
                 {i % 2 ? <Tape rotate={i % 4 === 1 ? 3 : -4} /> : <Pin color="#C0483E" />}
@@ -173,6 +215,7 @@ function CoachingPlan({ onPractice, worst }) {
 
 export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
   const scrolled = useScrolled();
+  const realEvidence = useRealEvidence(user);
   const dims = diagnose(skillsFor(user), BENCHMARK);   // weakest first
   const worst = dims[0];
   const best = dims[dims.length - 1];
@@ -204,7 +247,7 @@ export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
         </div>
 
         <StandingBoard dims={dims} behind={behind} />
-        <EvidenceWall />
+        <EvidenceWall items={realEvidence || evidence} />
         <AnswerShape />
         <CoachingPlan onPractice={onPractice} worst={worst} />
       </main>

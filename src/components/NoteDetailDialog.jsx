@@ -1,10 +1,35 @@
+import { useEffect, useState } from 'react';
 import Dialog from './Dialog';
 import { Pencil } from './paper';
 import { NOTES } from '../data/fixtures';
+import { getStudentResume, pollStudentResume } from '../lib/api';
+import { toDisplayNote } from '../lib/resumeNotes';
 
-/** The torn-out sheet behind a sticky note: sub-scores plus the coach's line. */
-export default function NoteDetailDialog({ noteKey, onClose, onPractice }) {
-  const n = NOTES.find((x) => x.key === noteKey);
+/** The torn-out sheet behind a sticky note: sub-scores plus the coach's
+ *  line. Reads the same real resume analysis as StickyWall.jsx - fetched
+ *  independently here rather than threaded down as a prop, since this
+ *  dialog is opened directly from App.jsx, a level above JourneyPage. */
+export default function NoteDetailDialog({ noteKey, user, onClose, onPractice }) {
+  const [notes, setNotes] = useState(NOTES);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        let resume = await getStudentResume(user.id);
+        if (resume.status === 'processing') resume = await pollStudentResume(user.id);
+        if (cancelled || resume?.status !== 'ready' || !resume.notes) return;
+        const real = resume.notes.map(toDisplayNote).filter(Boolean);
+        if (real.length) setNotes(real);
+      } catch {
+        // no resume uploaded yet (404) or a blip - the fixture sample stays
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  const n = notes.find((x) => x.key === noteKey);
 
   return (
     <Dialog open={!!n} onClose={onClose} labelledBy="dTitle">

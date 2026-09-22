@@ -26,11 +26,20 @@ const fade = (a, b, ch = 'g', extra = '') => ({
  *  rather than asserting a number of its own. */
 export function trajectory(user) {
   if (!user?.history) return growth;
-  const dims = Object.values(user.history);
-  const n = dims[0].length;
-  const data = Array.from({ length: n }, (_, i) =>
-    Math.round(dims.reduce((a, h) => a + h[i], 0) / dims.length));
-  return { data, labels: data.map((_, i) => (i === n - 1 ? 'today' : String(i + 1))) };
+  const dims = Object.values(user.history).filter((h) => h.length > 0);
+  if (!dims.length) return growth;
+  // Real dimensions get scored on different tracks at different times, so
+  // their histories are not guaranteed the same length the fixture's were —
+  // average only over the dimensions that actually have a value at each
+  // point, most-recent-aligned (index counted from the end).
+  const n = Math.max(...dims.map((h) => h.length));
+  const data = Array.from({ length: n }, (_, iFromStart) => {
+    const i = n - 1 - iFromStart;
+    const atPoint = dims.map((h) => h[h.length - 1 - i]).filter((v) => v != null);
+    if (!atPoint.length) return null;
+    return Math.round(atPoint.reduce((a, v) => a + v, 0) / atPoint.length);
+  }).filter((v) => v != null);
+  return { data, labels: data.map((_, i) => (i === data.length - 1 ? 'today' : String(i + 1))) };
 }
 
 export default function GrowthGraph({ user }) {

@@ -1,11 +1,36 @@
-import { forwardRef } from 'react';
+import { forwardRef, useEffect, useState } from 'react';
 import { Pencil, Pin, Tape, Underline } from './paper';
 import { useInViewOnce } from '../hooks/useReveal';
 import { NOTES } from '../data/fixtures';
+import { getStudentResume, pollStudentResume } from '../lib/api';
+import { toDisplayNote } from '../lib/resumeNotes';
 
-/** The wall of skill notes. Each note opens its evidence in a dialog. */
-const StickyWall = forwardRef(function StickyWall({ onOpenNote }, ref) {
+/** The wall of skill notes. Each note opens its evidence in a dialog.
+ *
+ * Reads the real resume analysis (see app/llm/resume_notes.py) once the
+ * student's uploaded profile resume (ProfileDrawer.jsx) finishes
+ * processing, falling back to the fixture NOTES — a sample of what the wall
+ * looks like — until they have uploaded one. */
+const StickyWall = forwardRef(function StickyWall({ user, onOpenNote }, ref) {
   const inView = useInViewOnce(ref, 0.12);
+  const [notes, setNotes] = useState(NOTES);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        let resume = await getStudentResume(user.id);
+        if (resume.status === 'processing') resume = await pollStudentResume(user.id);
+        if (cancelled || resume?.status !== 'ready' || !resume.notes) return;
+        const real = resume.notes.map(toDisplayNote).filter(Boolean);
+        if (real.length) setNotes(real);
+      } catch {
+        // no resume uploaded yet (404) or a blip - the fixture sample stays
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   return (
     <>
@@ -21,7 +46,7 @@ const StickyWall = forwardRef(function StickyWall({ onOpenNote }, ref) {
           </div>
 
           <div className="notes">
-            {NOTES.map((n, i) => (
+            {notes.map((n, i) => (
               <button
                 key={n.key}
                 type="button"

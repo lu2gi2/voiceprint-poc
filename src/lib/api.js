@@ -225,3 +225,75 @@ export async function pollSummary(sessionId, { onTick, timeoutMs = 180000, every
   }
   return last;
 }
+
+/* ---------- Student profile ---------- */
+
+export async function getStudentProfile(studentId) {
+  return req(`/api/students/${studentId}`);
+}
+
+/** Recent-activity feed behind JourneyPage's RECENT fixture list. */
+export async function getStudentSessions(studentId, { limit = 10 } = {}) {
+  return req(`/api/students/${studentId}/sessions?limit=${limit}`);
+}
+
+/** Real per-dimension score history behind StatsPage's user.history. */
+export async function getStudentHistory(studentId) {
+  return req(`/api/students/${studentId}/history`);
+}
+
+/** One resume per student profile - replaces ProfileDrawer.jsx's old
+ *  localStorage-only upload. Throws with the backend's rejection reason on
+ *  400/422/413 (failed local checks) so the caller can show it. A 202 means
+ *  "processing" - poll getStudentResume for the real outcome. */
+export async function uploadStudentResume(studentId, file) {
+  const form = new FormData();
+  form.append('resume', file, file.name);
+  const res = await fetch(`${BASE}/api/students/${studentId}/resume`, { method: 'POST', body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  return body;
+}
+
+export async function getStudentResume(studentId) {
+  return req(`/api/students/${studentId}/resume`);
+}
+
+export async function deleteStudentResume(studentId) {
+  return req(`/api/students/${studentId}/resume`, { method: 'DELETE' });
+}
+
+/** Wait for the profile resume's background analysis (DeepSeek sticky-note
+ *  generation) to reach a terminal state: ready | rejected | failed. */
+export async function pollStudentResume(studentId, { onTick, timeoutMs = 60000, everyMs = 2000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await getStudentResume(studentId);
+      onTick?.(r);
+      if (r.status !== 'processing') return r;
+    } catch {
+      // a blip mid-poll should not strand the screen; keep trying
+    }
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+  return null;
+}
+
+/* ---------- Admin portal ---------- */
+
+export async function getAdminOverview() {
+  return req('/api/admin/overview');
+}
+
+export async function getAdminBands() {
+  return req('/api/admin/bands');
+}
+
+export async function getAdminBandRoster(bandKey) {
+  return req(`/api/admin/bands/${bandKey}`);
+}
+
+export async function getAdminWorklist({ limit = 10 } = {}) {
+  return req(`/api/admin/worklist?limit=${limit}`);
+}
