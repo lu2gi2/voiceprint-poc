@@ -10,6 +10,9 @@ import { assessments } from '../data/assessments';
 function TrackNote({ a, onPick }) {
   const soon = a.status === 'soon';
   const mins = Math.max(1, Math.round(a.questions.reduce((s, q) => s + q.target, 0) / 60));
+  const length = a.resumeDriven
+    ? 'Upload your resume to begin'
+    : `${a.questions.length} questions · ~${mins} min`;
 
   return (
     <article className={`track${soon ? ' soon' : ''}`}
@@ -36,7 +39,7 @@ function TrackNote({ a, onPick }) {
           </>
         ) : (
           <>
-            <span className="track-len">{a.questions.length} questions · ~{mins} min</span>
+            <span className="track-len">{length}</span>
             <button type="button" className="track-go" onClick={() => onPick(a.id)}>
               START <i>→</i>
             </button>

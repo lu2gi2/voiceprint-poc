@@ -54,6 +54,69 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
   return req(`/api/sessions/${sessionId}/answers`, { method: 'POST', body: form }, { timeout: 60000 });
 }
 
+/** Upload a resume for the technical-resume track. Throws with the
+ *  backend's rejection reason on 400/422 (failed the local checks before
+ *  processing even started) so the caller can show it. A 202 means
+ *  "processing" — poll getResume/pollResume for the real outcome. */
+export async function uploadResume(sessionId, file) {
+  const form = new FormData();
+  form.append('resume', file, file.name);
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/resume`, { method: 'POST', body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  return body;
+}
+
+export async function getResume(sessionId) {
+  return req(`/api/sessions/${sessionId}/resume`);
+}
+
+/** Wait for the resume's background pipeline (DeepSeek question generation +
+ *  Kokoro pre-render) to reach a terminal state: ready | rejected | failed. */
+export async function pollResume(sessionId, { onTick, timeoutMs = 120000, everyMs = 2000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await getResume(sessionId);
+      onTick?.(r);
+      if (r.status !== 'processing') return r;
+    } catch {
+      // a blip mid-poll should not strand the screen; keep trying
+    }
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+  return null;
+}
+
+export async function getQuestions(sessionId) {
+  return req(`/api/sessions/${sessionId}/questions`);
+}
+
+export function questionAudioUrl(sessionId, index) {
+  return `${BASE}/api/sessions/${sessionId}/questions/${index}/audio`;
+}
+
+/** Wait for question `index` to exist — the adaptive next-question step runs
+ *  as a background task after the previous answer is scored, so this can
+ *  take a while (a DeepSeek call plus a TTS render). Returns null on
+ *  timeout rather than throwing, so the caller can show a clear message
+ *  instead of an unexplained hang. */
+export async function pollForQuestion(sessionId, index, { onTick, timeoutMs = 120000, everyMs = 2500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const qs = await getQuestions(sessionId);
+      const found = qs.find((q) => q.question_index === index);
+      onTick?.(qs);
+      if (found) return found;
+    } catch {
+      // a blip mid-poll should not strand the interview; keep trying
+    }
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  return null;
+}
+
 export async function getAnswer(answerId) {
   return req(`/api/answers/${answerId}`);
 }

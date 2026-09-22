@@ -4,10 +4,12 @@ import AdminPage from './pages/AdminPage';
 import JourneyPage from './pages/JourneyPage';
 import AssessmentsPage from './pages/AssessmentsPage';
 import SessionPage from './pages/SessionPage';
+import ResumeUploadPage from './pages/ResumeUploadPage';
 import StatsPage from './pages/StatsPage';
 import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
 import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
+import { byId } from './data/assessments';
 
 /* No router — the POC is a small set of views: the journey page, the full
    report behind the blackboard, the assessment picker, and a live session. */
@@ -112,12 +114,25 @@ export default function App() {
       {view === 'assessments' && (
         <AssessmentsPage
           onBack={() => setView('journey')}
-          onPick={(id) => { setRunningId(id); setView('session'); }}
+          onPick={(id) => {
+            setRunningId(id);
+            setView(byId(id)?.resumeDriven ? 'resume' : 'session');
+          }}
         />
       )}
 
       {view === 'session' && (
         <SessionPage
+          assessmentId={runningId}
+          user={user}
+          onExit={() => { setRunningId(null); setView('assessments'); }}
+          onDone={() => { setRunningId(null); setView('journey'); }}
+          onComplete={finishSession}
+        />
+      )}
+
+      {view === 'resume' && (
+        <ResumeUploadPage
           assessmentId={runningId}
           user={user}
           onExit={() => { setRunningId(null); setView('assessments'); }}
@@ -148,7 +163,7 @@ export default function App() {
         />
       )}
 
-      {view !== 'session' && view !== 'assessments' && (
+      {view !== 'session' && view !== 'assessments' && view !== 'resume' && (
         <footer>
           <span>voiceprint · Speak. Grow. Get Hired.</span>
           <span>Sample data for design preview</span>
