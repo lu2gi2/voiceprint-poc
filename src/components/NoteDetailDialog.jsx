@@ -13,9 +13,11 @@ export default function NoteDetailDialog({ noteKey, onClose, onPractice }) {
           <button className="x" type="button" onClick={onClose} aria-label="Close">✕</button>
 
           <p className="d-eyebrow" id="dTitle">{n.title}</p>
+          {/* The headline reads the same as the sticky note it opened from —
+              a count of things to fix, not a percentage of anything. */}
           <p className="d-score">
-            {n.pct}
-            <small>%</small>
+            {n.count}
+            <small>{n.label}</small>
           </p>
 
           <div className="d-rows">

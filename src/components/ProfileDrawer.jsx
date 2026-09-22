@@ -80,7 +80,6 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
 
     try {
       const extractedText = await extractTextFromFile(file);
-      console.log('extractedText.slice(0, 300):', extractedText.slice(0, 300));
       const validation = validateResume(extractedText);
 
       if (!validation.isValid) {

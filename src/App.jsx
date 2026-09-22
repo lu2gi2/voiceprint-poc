@@ -12,7 +12,7 @@ import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
    report behind the blackboard, the assessment picker, and a live session. */
 
 export default function App() {
-  const [user, setUser] = useState(() => ({ name: student.name, email: student.email }));
+  const [user, setUser] = useState(null);
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
   const [recent, setRecent] = useState(() => RECENT.map((r, i) => ({ ...r, id: `seed-${i}` })));

@@ -263,7 +263,7 @@ dialog[open]{animation:pick .35s cubic-bezier(.2,.9,.3,1.1)}
 .dsheet .x:hover{background:rgba(0,0,0,.08)}
 .d-eyebrow{font-size:11px;font-weight:700;letter-spacing:.16em;color:#B0403A}
 .d-score{font-family:var(--hand);font-weight:700;font-size:84px;line-height:.95;margin:6px 0 12px}
-.d-score small{font-size:42px}
+.d-score small{display:block;font-size:30px;font-weight:400;opacity:.8;letter-spacing:.01em}
 .d-rows{display:grid;gap:14px;margin-bottom:18px}
 .d-row{display:grid;grid-template-columns:110px 1fr 38px;align-items:center;gap:12px;font-family:var(--hand2);font-size:19px}
 .d-row b{font-weight:700;text-align:right;font-variant-numeric:tabular-nums;font-family:var(--sans);font-size:14px}

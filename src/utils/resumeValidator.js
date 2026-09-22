@@ -165,19 +165,23 @@ export function validateResume(rawText) {
     score = Math.min(100, score + 5);
   }
 
-  // Deterministic validity gate:
-  // Must satisfy essential structural anchors:
-  // 1. Email is required
-  // 2. At least 2 of 4 canonical headings
-  // 3. At least 1 date/timeline
-  // 4. At least 1 action verb
-  // 5. Total score >= 50
-  const isValid =
-    hasEmail &&
-    foundHeadingsCount >= 2 &&
-    (hasDateRange || hasMonthYear || hasYear) &&
-    matchedVerbs.length >= 1 &&
-    score >= 50;
+  /* Deterministic validity gate.
+
+     The job here is to catch the wrong file — a cover letter, a transcript, a
+     photo of a cat — not to grade the resume. Real resumes are wildly varied:
+     plenty of good ones put the phone number in a header PDF.js drops, skip
+     "Experience" entirely in favour of "Internships", or list dates in a column
+     that extracts out of order. Requiring every anchor rejected those, so the
+     gate asks only that the document look like a resume from two directions at
+     once. The per-check shortfalls still ride along in missingChecks — the
+     score is advice, not a bouncer. */
+  const corroborating = [
+    hasEmail || hasPhone || hasProfile,        // reachable by some means
+    hasDateRange || hasMonthYear || hasYear,   // carries a timeline
+    matchedVerbs.length >= 1,                  // written in resume voice
+  ].filter(Boolean).length;
+
+  const isValid = wordCount >= 40 && foundHeadingsCount >= 1 && corroborating >= 1;
 
   return {
     isValid,
@@ -269,7 +273,6 @@ async function fallbackPdfExtract(file) {
 
 /**
  * Extracts plain text from an uploaded file (.pdf, .docx, or plain text).
- * Logs extractedText.slice(0, 300) to the console as required.
  * @param {File} file
  * @returns {Promise<string>}
  */
@@ -312,9 +315,6 @@ export async function extractTextFromFile(file) {
       extracted = '';
     }
   }
-
-  // Requirement 4: Add a console.log of extractedText.slice(0, 300)
-  console.log('extractedText.slice(0, 300):', extracted.slice(0, 300));
 
   return extracted;
 }
