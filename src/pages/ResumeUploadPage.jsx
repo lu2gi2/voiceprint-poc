@@ -1,23 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { byId } from '../data/assessments';
-import { checkHealth, createSession, uploadResume } from '../lib/api';
+import {
+  checkHealth, createSession, uploadResume, pollResume, getQuestions, questionAudioUrl,
+} from '../lib/api';
 
 /**
  * The setup step for the resume-driven technical track: open a session, take
- * a resume, run it past the backend's local checks (extraction + the
- * resume-shape heuristic).
+ * a resume, run it past the backend's local checks, then wait for the
+ * background pipeline (DeepSeek question generation + Kokoro TTS pre-render)
+ * to finish and show the result.
  *
- * There is no question-generation call yet (that is a separate backend step
- * still being built), so a validated resume ends here rather than pretending
- * to hand off into a live interview that does not exist — see the note in
- * the "validated" state below.
+ * There is no live interview loop yet (that is a separate piece, issue #4
+ * task 7) — a ready resume ends here, showing the generated questions with
+ * playable audio, rather than pretending to hand off into an interview that
+ * does not exist yet.
  */
 export default function ResumeUploadPage({ assessmentId, user, onExit }) {
   const assessment = byId(assessmentId);
   const [offline, setOffline] = useState(false);
-  const [state, setState] = useState('idle'); // idle | uploading | validated | rejected
+  const [state, setState] = useState('idle'); // idle | uploading | processing | ready | rejected | failed
   const [reason, setReason] = useState(null);
   const [fileName, setFileName] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const fileInput = useRef(null);
   const remoteId = useRef(null);
 
@@ -56,10 +60,29 @@ export default function ResumeUploadPage({ assessmentId, user, onExit }) {
 
     setState('uploading');
     setReason(null);
+    setQuestions([]);
     try {
       const result = await uploadResume(remoteId.current, file);
-      setState(result.status === 'validated' ? 'validated' : 'rejected');
-      setReason(result.reject_reason);
+      if (result.status !== 'processing') {
+        // failed a local check synchronously (400/422 already throws; this
+        // covers any other non-processing status the backend might return)
+        setState('rejected');
+        setReason(result.reject_reason);
+        return;
+      }
+      setState('processing');
+      const final = await pollResume(remoteId.current);
+      if (!final) {
+        setState('failed');
+        setReason('Timed out waiting for question generation.');
+        return;
+      }
+      setState(final.status);
+      setReason(final.reject_reason);
+      if (final.status === 'ready') {
+        const qs = await getQuestions(remoteId.current).catch(() => []);
+        setQuestions(qs);
+      }
     } catch (err) {
       setState('rejected');
       setReason(err.message);
@@ -105,18 +128,38 @@ export default function ResumeUploadPage({ assessmentId, user, onExit }) {
                     <p className="sr-sub">Extracting text and confirming this looks like a resume.</p>
                   </>
                 )}
-                {state === 'validated' && (
+                {state === 'processing' && (
                   <>
-                    <p className="sr-big">“{fileName}” looks good</p>
+                    <p className="sr-big">Reading “{fileName}”…</p>
+                    <p className="sr-sub">Generating interview questions from your projects and skills.</p>
+                  </>
+                )}
+                {state === 'ready' && (
+                  <>
+                    <p className="sr-big">Questions ready</p>
                     <p className="sr-sub">
-                      Resume accepted. Question generation from it is not wired up yet —
-                      this is as far as this track goes for now.
+                      Drawn from “{fileName}”. There is no live interview loop yet — this is
+                      as far as this track goes for now.
                     </p>
+                    <ol className="resume-questions">
+                      {questions.map((q) => (
+                        <li key={q.question_index}>
+                          <p className="heard-text">“{q.prompt}”</p>
+                          <audio controls preload="none" src={questionAudioUrl(remoteId.current, q.question_index)} />
+                        </li>
+                      ))}
+                    </ol>
                   </>
                 )}
                 {state === 'rejected' && (
                   <>
                     <p className="sr-big err">“{fileName}” was not accepted</p>
+                    <p className="sr-sub err" role="alert">{reason}</p>
+                  </>
+                )}
+                {state === 'failed' && (
+                  <>
+                    <p className="sr-big err">Something went wrong processing “{fileName}”</p>
                     <p className="sr-sub err" role="alert">{reason}</p>
                   </>
                 )}
@@ -137,7 +180,7 @@ export default function ResumeUploadPage({ assessmentId, user, onExit }) {
                 type="button"
                 className="chalk-btn"
                 onClick={pickFile}
-                disabled={state === 'uploading'}
+                disabled={state === 'uploading' || state === 'processing'}
               >
                 {state === 'idle' ? 'CHOOSE RESUME' : 'CHOOSE A DIFFERENT FILE'} <i>→</i>
               </button>

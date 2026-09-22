@@ -808,6 +808,10 @@ svg .f-drop.worst{font-size:25px;font-weight:700}
 .heard-text.muted{color:var(--chalk-mute)}
 .heard-text.err{color:var(--chalk-err)}
 
+.resume-questions{margin-top:18px;display:flex;flex-direction:column;gap:16px}
+.resume-questions li{padding-top:14px;border-top:1.5px dashed rgba(241,239,227,.18)}
+.resume-questions audio{margin-top:8px;width:100%;max-width:360px}
+
 .scripts{margin:clamp(18px,2.6vh,26px) 0;padding-top:16px;border-top:2px dashed rgba(241,239,227,.14)}
 .scripts-lab{font-size:10px;font-weight:700;letter-spacing:.16em;color:var(--chalk-mute);margin-bottom:12px}
 .script + .script{margin-top:14px;padding-top:14px;border-top:1.5px dashed rgba(241,239,227,.12)}

@@ -55,7 +55,9 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
 }
 
 /** Upload a resume for the technical-resume track. Throws with the
- *  backend's rejection reason on 400/422 so the caller can show it. */
+ *  backend's rejection reason on 400/422 (failed the local checks before
+ *  processing even started) so the caller can show it. A 202 means
+ *  "processing" — poll getResume/pollResume for the real outcome. */
 export async function uploadResume(sessionId, file) {
   const form = new FormData();
   form.append('resume', file, file.name);
@@ -63,6 +65,35 @@ export async function uploadResume(sessionId, file) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
   return body;
+}
+
+export async function getResume(sessionId) {
+  return req(`/api/sessions/${sessionId}/resume`);
+}
+
+/** Wait for the resume's background pipeline (DeepSeek question generation +
+ *  Kokoro pre-render) to reach a terminal state: ready | rejected | failed. */
+export async function pollResume(sessionId, { onTick, timeoutMs = 120000, everyMs = 2000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await getResume(sessionId);
+      onTick?.(r);
+      if (r.status !== 'processing') return r;
+    } catch {
+      // a blip mid-poll should not strand the screen; keep trying
+    }
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+  return null;
+}
+
+export async function getQuestions(sessionId) {
+  return req(`/api/sessions/${sessionId}/questions`);
+}
+
+export function questionAudioUrl(sessionId, index) {
+  return `${BASE}/api/sessions/${sessionId}/questions/${index}/audio`;
 }
 
 export async function getAnswer(answerId) {
