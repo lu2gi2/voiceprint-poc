@@ -25,13 +25,8 @@ export const assessments = [
     desc: 'The questions every panel opens with. Judged on whether you sound prepared rather than rehearsed.',
     measures: ['Fluency', 'Clarity', 'Conciseness'],
     status: 'ready',
-    questions: [
-      { prompt: 'Tell me about yourself.', guidance: 'Present → past → why you are here. Skip the childhood.', target: 90 },
-      { prompt: 'Why this role, and why now?', guidance: 'Name something specific about the work, not the brand.', target: 75 },
-      { prompt: 'What is your biggest strength? Give one example.', guidance: 'One strength, one story, one result.', target: 75 },
-      { prompt: 'Where do you see yourself in three years?', guidance: 'A direction beats a job title.', target: 60 },
-      { prompt: 'Do you have any questions for us?', guidance: 'Ask about the work, the team, or how success is measured.', target: 45 },
-    ],
+    resumeDriven: true,
+    questions: [],
   },
   {
     id: 'technical',
@@ -77,13 +72,8 @@ export const assessments = [
     desc: 'Situation, Task, Action, Result. The round where good stories get lost in setup and never reach the outcome.',
     measures: ['Structure', 'Conciseness', 'Clarity'],
     status: 'ready',
-    questions: [
-      { prompt: 'Tell me about a time you disagreed with a teammate.', guidance: 'Situation → Task → Action → Result. Land the Result.', target: 105 },
-      { prompt: 'Describe a deadline you missed. What happened next?', guidance: 'Own it early, spend your time on the recovery.', target: 105 },
-      { prompt: 'Give an example of a time you led without being in charge.', guidance: 'Influence, not authority. What did you actually do?', target: 105 },
-      { prompt: 'Tell me about feedback that was hard to hear.', guidance: 'What you changed matters more than how it felt.', target: 90 },
-      { prompt: 'Describe a time you had to learn something fast.', guidance: 'Method, then evidence it worked.', target: 90 },
-    ],
+    resumeDriven: true,
+    questions: [],
   },
   {
     id: 'placement',

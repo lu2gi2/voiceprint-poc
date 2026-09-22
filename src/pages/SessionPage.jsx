@@ -36,7 +36,7 @@ export default function SessionPage({ assessmentId, user, onExit, onDone, onComp
     (async () => {
       const health = await checkHealth();
       if (cancelled) return;
-      if (!health) { setOffline(true); return; }
+      if (!health || !health.ok || health.status !== 'ok') { setOffline(true); return; }
       try {
         const s = await createSession({
           student: { email: user?.email || 'demo@voiceprint.local', name: user?.name || 'Student' },
