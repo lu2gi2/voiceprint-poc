@@ -41,6 +41,7 @@ export default function JourneyPage({
         onGoBoard={scrollToBoard}
         onGoPractice={onPractice}
         onGoReports={() => scrollTo(wallRef)}
+        practiceCount={practiceCount}
       />
 
       <main id="main">

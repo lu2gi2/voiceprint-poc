@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScrolled } from '../hooks/useReveal';
 import { student, NOTIFICATIONS } from '../data/fixtures';
+import ProfileDrawer from './ProfileDrawer';
 
 function Logo() {
   return (
@@ -15,10 +16,11 @@ function Logo() {
   );
 }
 
-export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoReports }) {
+export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoReports, practiceCount }) {
   const name = user?.name || student.name;
   const scrolled = useScrolled();
   const [popOpen, setPopOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [unread, setUnread] = useState(true);
   const wrapRef = useRef(null);
   const bellRef = useRef(null);
@@ -106,10 +108,23 @@ export default function Navbar({ user, onSignOut, onGoBoard, onGoPractice, onGoR
 
         <button type="button" className="signout" onClick={onSignOut}>SIGN OUT</button>
 
-        <div className="avatar" role="img" aria-label={`${name}'s profile`}>
+        <button
+          type="button"
+          className="avatar"
+          onClick={() => setProfileOpen(true)}
+          aria-label={`${name}'s profile and resume`}
+          title="Open Profile & Resume"
+        >
           {name.charAt(0).toUpperCase()}
-        </div>
+        </button>
       </div>
+
+      <ProfileDrawer
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        user={user}
+        practiceCount={practiceCount}
+      />
     </header>
   );
 }
