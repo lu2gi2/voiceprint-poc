@@ -45,6 +45,37 @@ class InterviewSession(Base):
     answers: Mapped[list["Answer"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Answer.id"
     )
+    questions: Mapped[list["SessionQuestion"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="SessionQuestion.question_index"
+    )
+
+
+class SessionQuestion(Base):
+    """One question in a session's script, however it was produced.
+
+    Decouples "what will be asked" from "what was answered" (Answer). A
+    scripted track (behavioral, HR) and a resume-driven technical track both
+    write rows here the same way, so the recording/transcription/scoring
+    pipeline never has to know which track it is running.
+    """
+
+    __tablename__ = "session_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+
+    question_index: Mapped[int] = mapped_column(Integer)
+    prompt: Mapped[str] = mapped_column(Text)
+    target_seconds: Mapped[int] = mapped_column(Integer)
+
+    # Set once TTS has been pre-rendered for this question; null until then.
+    # Nothing reads this yet — it is the hook the Kokoro pre-render step and
+    # the live loop use once they land.
+    audio_key: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    session: Mapped[InterviewSession] = relationship(back_populates="questions")
 
 
 class Answer(Base):
