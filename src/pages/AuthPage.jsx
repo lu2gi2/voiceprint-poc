@@ -80,8 +80,9 @@ const COOLDOWN_MS = 10000;
  * are the same board with the chalk rubbed out and rewritten, rather than two
  * separate pages.
  *
- * Nothing here authenticates — the POC has no backend. Any email and any
- * password get you in, and the board says so rather than pretending otherwise.
+ * Credentials are checked against the roll in `data/students` — see
+ * `authenticate` above for what that does, and for what it does not buy while
+ * the check runs in the browser.
  */
 export default function AuthPage({ onAuthed }) {
   const [role, setRole] = useState('student');

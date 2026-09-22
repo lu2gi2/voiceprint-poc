@@ -84,15 +84,15 @@ export default function GrowthGraph({ user }) {
     const b = a + 0.07;
     const isLast = i === last;
     return {
-      i, a, b, last,
-      ring: handCircle(p[0], p[1], last ? 12 : 9, rng),
-      halo: last ? handCircle(p[0], p[1], 20, rng) : null,
-      lx: last ? Math.min(p[0], W - R - 6) : p[0] + 4,
-      ly: last ? p[1] - 32 : p[1] - 22,
+      i, a, b, last: isLast,
+      ring: handCircle(p[0], p[1], isLast ? 12 : 9, rng),
+      halo: isLast ? handCircle(p[0], p[1], 20, rng) : null,
+      lx: isLast ? Math.min(p[0], W - R - 6) : p[0] + 4,
+      ly: isLast ? p[1] - 32 : p[1] - 22,
     };
   });
 
-  const alt = `Communication growth across the last six practices: ${data.join(', ')}.`;
+  const alt = `Communication growth across the last ${data.length} practices: ${data.join(', ')}.`;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={alt} preserveAspectRatio="xMidYMid meet">

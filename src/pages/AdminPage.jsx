@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pin, Tape, Underline, Pencil } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
 import { BAND_RAMP, BOARD } from '../lib/viz';
 import BandRegister from '../components/BandRegister';
 import {
   collegeStats, bandStats, departmentStats, dimensionStats, worklist, dormantStats,
+  nextRecommendation,
 } from '../data/students';
-import { college, lastIntervention, recommendation } from '../data/admin';
+import { college, lastIntervention } from '../data/admin';
 
 /* Everything on this page is computed from the student roll — the band totals
    are the students in them, the department averages are their students'
@@ -17,6 +18,7 @@ const departments = departmentStats();
 const collegeDimensions = dimensionStats();
 const dormant = dormantStats();
 const work = worklist(10);
+const recommendation = nextRecommendation();
 
 /* ---------- Headline numbers, on paper slips ---------- */
 
@@ -163,8 +165,9 @@ function Worklist() {
             <h2 id="workH">Closest to moving up</h2>
           </div>
           <p className="work-why">
-            Sorted by how few points separate each student from the next band. Trainer
-            time is finite — this is the order that moves the most students.
+            Each pick is that department’s closest to the next band, dealt out a
+            department at a time. Trainer time is finite, and strictly by score this
+            list is ten students from one department at the same mark.
           </p>
         </div>
 
@@ -238,7 +241,7 @@ function Actions() {
           <p className="rec-why">{recommendation.why}</p>
           <dl className="rec-figs">
             <div><dt>Reaches</dt><dd>{recommendation.reach} students</dd></div>
-            <div><dt>Would move a band</dt><dd>{recommendation.wouldMove} students</dd></div>
+            <div><dt>Blocked on {recommendation.focus.toLowerCase()}</dt><dd>{recommendation.wouldMove} students</dd></div>
             <div><dt>Effort</dt><dd>{recommendation.effort}</dd></div>
           </dl>
           <button className="btn" type="button">DRAFT THE TRAINING BRIEF <i>→</i></button>

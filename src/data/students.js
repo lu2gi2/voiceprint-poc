@@ -193,24 +193,90 @@ export function dimensionStats() {
   })).sort((a, b) => b.score - a.score);
 }
 
+/** The dimension a student is weakest at. Ties go to the first in DIMENSIONS. */
+const weakestDimension = (s) =>
+  DIMENSIONS.reduce((a, d) => (s.scores[d] < s.scores[a] ? d : a), DIMENSIONS[0]);
+
+/** Students close enough to the next band for one session to carry them over. */
+const withinReach = (s, points) =>
+  s.band !== 'high' && !isDormant(s)
+  && BANDS[bandOf(s.overall).step + 1].min - s.overall <= points;
+
 /**
- * The worklist: students closest to crossing into the next band.
+ * What to run next — counted rather than asserted.
  *
- * Trainer time is finite, so ordering by "points to the next boundary" puts the
- * cheapest conversions first — the students a single workshop actually moves.
+ * The topic is the weakest dimension college-wide. It goes to the two
+ * departments with the highest *share of their own students* within reach of
+ * the next band, not the highest headcount: ranked by headcount the largest
+ * department always wins, which reports that CSE is big rather than that CSE
+ * needs it. `wouldMove` is the subset for whom that dimension is actually the
+ * blocker, not merely a low score.
+ */
+export function nextRecommendation() {
+  const dims = dimensionStats();        // strongest -> weakest
+  const weakest = dims[dims.length - 1];
+
+  // Share of each department's own students sitting within four points of the
+  // next band — how much of that department one clinic would move.
+  const ranked = DEPARTMENTS.map((d) => {
+    const inDept = students.filter((s) => s.dept === d.code);
+    const reach = inDept.filter((s) => withinReach(s, 4));
+    return { code: d.code, pct: Math.round((reach.length / inDept.length) * 100), reach };
+  }).sort((a, b) => b.pct - a.pct || b.reach.length - a.reach.length);
+
+  const [first, second] = ranked;
+  const theirs = [...first.reach, ...second.reach];
+  const wouldMove = theirs.filter((s) => weakestDimension(s) === weakest.name).length;
+  const topic = weakest.name.toLowerCase();
+
+  return {
+    focus: weakest.name,
+    depts: [first.code, second.code],
+    headline: `Run a ${topic} clinic for ${first.code} and ${second.code}`,
+    why: `${first.code} and ${second.code} have the highest share of their own students `
+      + `within four points of the next band (${first.pct}% and ${second.pct}%), and `
+      + `${wouldMove} of those students are weakest at ${topic} — a clinic there converts `
+      + 'the most for one session of trainer time.',
+    reach: theirs.length,
+    wouldMove,
+    effort: 'One 90-minute session per department',
+  };
+}
+
+/**
+ * The worklist: students closest to crossing into the next band, dealt out a
+ * department at a time.
+ *
+ * Trainer time is finite, so "points to the next boundary" picks the cheapest
+ * conversions first. But strict ordering collapses: the gap-1 students all tie
+ * on both keys, so stability hands back roll order and the list becomes ten
+ * identical rows from whichever department generates first. Taking one per
+ * department per round keeps every pick that department's closest to the next
+ * band while leaving a trainer something they can actually run.
+ *
  * Dormant students are excluded; they need chasing, not coaching, and they
  * appear in the quiet list instead.
  */
 export function worklist(limit = 12) {
-  return students
+  const ranked = students
     .filter((s) => s.band !== 'high' && !isDormant(s))
     .map((s) => {
       const next = BANDS[bandOf(s.overall).step + 1];
-      const weakest = DIMENSIONS.reduce((a, d) => (s.scores[d] < s.scores[a] ? d : a), DIMENSIONS[0]);
-      return { ...s, gap: next.min - s.overall, nextBand: next.label, weakest };
+      return { ...s, gap: next.min - s.overall, nextBand: next.label, weakest: weakestDimension(s) };
     })
-    .sort((a, b) => a.gap - b.gap || b.overall - a.overall)
-    .slice(0, limit);
+    .sort((a, b) => a.gap - b.gap || b.overall - a.overall);
+
+  const queues = DEPARTMENTS.map((d) => ranked.filter((s) => s.dept === d.code));
+  const out = [];
+  for (let i = 0; out.length < limit; i++) {
+    const before = out.length;
+    for (const q of queues) {
+      if (out.length >= limit) break;
+      if (q[i]) out.push(q[i]);
+    }
+    if (out.length === before) break;   // every department exhausted
+  }
+  return out;
 }
 
 export function dormantStats() {
