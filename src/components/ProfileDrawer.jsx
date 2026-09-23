@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Underline, Tape } from './paper';
 import { student } from '../data/fixtures';
-import { validateResume, extractTextFromFile } from '../utils/resumeValidator';
+import { uploadStudentResume, getStudentResume, pollStudentResume, deleteStudentResume } from '../lib/api';
 
-const STORAGE_KEY = 'voiceprint_active_resume';
+const fmtSize = (bytes) =>
+  bytes > 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-const DEFAULT_RESUME = {
-  name: 'Deepak_Bathirachalam_Resume.pdf',
-  size: 184320,
-  formattedSize: '180 KB',
-  type: 'application/pdf',
-  uploadedAt: 'Today, 11:30 AM',
+const fmtWhen = (iso) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
@@ -19,17 +17,26 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
   const [uploadError, setUploadError] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState(null);
-  
-  const [resume, setResume] = useState(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === 'none') return null;
-      if (stored) return JSON.parse(stored);
-      return DEFAULT_RESUME;
-    } catch {
-      return DEFAULT_RESUME;
-    }
-  });
+  const [resume, setResume] = useState(null);
+
+  // Pull whatever resume this student already has on file (real backend now,
+  // not localStorage - the same upload is what StickyWall.jsx's note wall
+  // reads too, see api/students.py).
+  useEffect(() => {
+    if (!user?.id) { setResume(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getStudentResume(user.id);
+        if (!cancelled && r.status === 'ready') {
+          setResume({ name: r.original_filename, formattedSize: null, uploadedAt: r.updated_at ? fmtWhen(r.updated_at) : '' });
+        }
+      } catch {
+        // 404 - no resume on file yet; leave the dropzone showing
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // Handle escape key
   useEffect(() => {
@@ -58,81 +65,49 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
   const handleFile = async (file) => {
     setUploadError('');
     setValidationError(null);
-    if (!file) return;
+    if (!file || !user?.id) return;
 
-    const validTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
-    ];
-    const isPdfOrDocx =
-      validTypes.includes(file.type) ||
-      file.name.toLowerCase().endsWith('.pdf') ||
-      file.name.toLowerCase().endsWith('.docx') ||
-      file.name.toLowerCase().endsWith('.txt');
-
+    const isPdfOrDocx = file.name.toLowerCase().endsWith('.pdf') || file.name.toLowerCase().endsWith('.docx');
     if (!isPdfOrDocx) {
       setUploadError('Please upload a valid PDF (.pdf) or Word document (.docx).');
       return;
     }
 
     setIsValidating(true);
-
     try {
-      const extractedText = await extractTextFromFile(file);
-      const validation = validateResume(extractedText);
+      // The backend runs the real check (same local heuristic the
+      // per-session resume upload uses) and rejects with a specific reason
+      // on 400/413/422 - no separate client-side pre-check needed.
+      await uploadStudentResume(user.id, file);
+      const result = await pollStudentResume(user.id);
 
-      if (!validation.isValid) {
+      if (!result || result.status !== 'ready') {
         setValidationError({
           fileName: file.name,
-          score: validation.score,
-          missingChecks: validation.missingChecks,
+          reason: result?.reject_reason || 'Could not analyze this file - please try again.',
         });
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        setIsValidating(false);
         return;
       }
 
-      const formattedSize =
-        file.size > 1024 * 1024
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.max(1, Math.round(file.size / 1024))} KB`;
-
-      const now = new Date();
-      const uploadedAt = `${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-
-      const newResume = {
-        name: file.name,
-        size: file.size,
-        formattedSize,
-        type: file.type || 'application/pdf',
-        uploadedAt,
-      };
-
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newResume));
-      } catch {
-        // ignore storage exceptions
-      }
-
-      setResume(newResume);
-      setValidationError(null);
+      setResume({ name: file.name, formattedSize: fmtSize(file.size), uploadedAt: fmtWhen(new Date().toISOString()) });
     } catch (err) {
-      console.error('Validation error:', err);
-      setUploadError('An error occurred while validating the file. Please try again.');
+      setValidationError({ fileName: file.name, reason: err.message || 'Upload failed.' });
     } finally {
       setIsValidating(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleRemove = () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, 'none');
-    } catch {}
-    setResume(null);
+  const handleRemove = async () => {
     setUploadError('');
     setValidationError(null);
+    setResume(null);
+    if (!user?.id) return;
+    try {
+      await deleteStudentResume(user.id);
+    } catch {
+      // already gone or unreachable - the UI already reflects "no resume"
+    }
   };
 
   const handleReplace = () => {
@@ -160,8 +135,9 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
 
   const displayName = user?.name || student.name;
   const displayEmail = user?.email || student.email || 'deepak.bathirachalam@university.edu';
-  const displayYear = student.year;
-  const displayBranch = student.branch;
+  const displayYear = user?.year || student.year;
+  const displayBranch = user?.branch || student.branch;
+  const readiness = user?.dataLoaded ? user.overall : student.readiness;
   const count = practiceCount ?? student.practices;
 
   return (
@@ -215,7 +191,7 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
                 {count} Practices Completed
               </span>
               <span className="profile-tag readiness">
-                ★ {student.readiness}% Interview Readiness
+                {readiness == null ? 'Not yet rated' : `★ ${readiness}% Interview Readiness`}
               </span>
             </div>
           </div>
@@ -262,7 +238,7 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
                 <div className="file-info">
                   <p className="file-title">{resume.name}</p>
                   <p className="file-meta">
-                    {resume.formattedSize} · Uploaded {resume.uploadedAt}
+                    {resume.formattedSize ? `${resume.formattedSize} · ` : ''}Uploaded {resume.uploadedAt}
                   </p>
                 </div>
               </div>
@@ -328,7 +304,7 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
                     Upload rejected: This file does not appear to be a valid resume
                   </h4>
                   <p className="rejection-sub">
-                    File <strong>“{validationError.fileName}”</strong> (Structure Score: {validationError.score}/100) lacks critical resume components:
+                    File <strong>“{validationError.fileName}”</strong>: {validationError.reason}
                   </p>
                 </div>
                 <button
@@ -341,14 +317,6 @@ export default function ProfileDrawer({ open, onClose, user, practiceCount }) {
                 </button>
               </div>
 
-              <ul className="rejection-checks">
-                {validationError.missingChecks.map((check, idx) => (
-                  <li key={idx} className="rejection-check-item">
-                    <span className="check-cross" aria-hidden="true">✕</span>
-                    <span>{check}</span>
-                  </li>
-                ))}
-              </ul>
               <p className="rejection-hint">
                 Tip: Ensure your resume includes standard sections (Experience, Education, Skills, Projects), contact details, and dates before uploading.
               </p>

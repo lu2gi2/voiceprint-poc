@@ -57,8 +57,8 @@ export default function JourneyPage({
           user={user}
         />
 
-        <StickyWall ref={wallRef} onOpenNote={onOpenNote} />
-        <CoachingCue ref={coachRef} onPractice={onPractice} />
+        <StickyWall ref={wallRef} user={user} onOpenNote={onOpenNote} />
+        <CoachingCue ref={coachRef} user={user} onPractice={onPractice} />
         <RecentPractice items={recent} freshId={freshId} />
         <GrowthJourney />
       </main>

@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DIMENSIONS } from '../data/assessments';
 import { studentsInBand } from '../data/students';
+import { getAdminBandRoster } from '../lib/api';
 
 /* A class register, not a dashboard. Placement staff already know the count
    from the card they clicked; what they need next is the names and the marks,
@@ -38,8 +39,27 @@ function download(name, text) {
 export default function BandRegister({ band, onClose }) {
   const [shown, setShown] = useState(PAGE);
   const [query, setQuery] = useState('');
+  // Real roster (app/api/admin.py's GET /admin/bands/{key} - same field
+  // names as the fixture generator on purpose) once it loads, falling back
+  // to the sample cohort until then.
+  const [real, setReal] = useState(null);
 
-  const all = useMemo(() => studentsInBand(band.key), [band.key]);
+  useEffect(() => {
+    let cancelled = false;
+    setReal(null);
+    (async () => {
+      try {
+        const roster = await getAdminBandRoster(band.key);
+        if (!cancelled) setReal(roster);
+      } catch {
+        // fixture fallback already covers a blip or an unreachable backend
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [band.key]);
+
+  const fixtureRoster = useMemo(() => studentsInBand(band.key), [band.key]);
+  const all = real || fixtureRoster;
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return all;

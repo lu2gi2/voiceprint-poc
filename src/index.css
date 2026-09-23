@@ -349,6 +349,42 @@ dialog[open]{animation:pick .35s cubic-bezier(.2,.9,.3,1.1)}
 /* page shell */
 .stats{min-height:100vh;background:var(--paper);animation:statsIn .5s cubic-bezier(.2,.9,.3,1) backwards}
 @keyframes statsIn{from{opacity:0;transform:translateY(18px)}}
+
+/* Right after sign-in/registration (App.jsx's justAuthed) - not replayed on
+   a page refresh, since that mounts straight from the stored session. A
+   beat after the eraser-wipe below has passed, so it reads as a settle
+   rather than fighting the wipe's own motion. */
+.page-enter{animation:pageEnter .45s .55s cubic-bezier(.2,.9,.3,1) backwards}
+@keyframes pageEnter{from{opacity:0;transform:translateY(14px)}}
+
+/* The sign-in -> dashboard transition (App.jsx's showWipe): the board
+   "erases" itself left to right, chalk dust kicking up off the felt, to
+   reveal the real page underneath - rather than a generic fade, this is
+   the same motion/materials as the physical eraser already drawn on every
+   chalkboard frame (.eraser/.chalk-dust above). Fixed + high z-index so it
+   sits over whatever page just mounted underneath it; pointer-events:none
+   throughout so it never blocks the first click on the real page. */
+.board-wipe{position:fixed;inset:0;z-index:1000;pointer-events:none;background:var(--board);
+  clip-path:inset(0 0 0 0%);animation:boardWipe .9s cubic-bezier(.65,0,.35,1) forwards}
+@keyframes boardWipe{to{clip-path:inset(0 0 0 100%)}}
+
+.wipe-eraser{position:fixed;top:50%;left:-90px;z-index:1001;width:96px;height:32px;margin-top:-16px;
+  border-radius:3px;transform:rotate(-3deg);pointer-events:none;
+  background:linear-gradient(180deg,#34352f 0,#34352f 52%,#C39355 53%,#A87A42 100%);
+  box-shadow:3px 6px 14px rgba(0,0,0,.5);
+  animation:eraserSweep .9s cubic-bezier(.65,0,.35,1) forwards}
+@keyframes eraserSweep{to{left:calc(100% - 6px)}}
+
+.wipe-motes{position:fixed;inset:0;z-index:1001;pointer-events:none;overflow:hidden}
+.wipe-motes i{position:absolute;top:50%;left:0;width:46px;height:46px;margin:-23px 0 0 -23px;
+  border-radius:50%;background:radial-gradient(ellipse at 40% 45%,rgba(241,239,227,.55),transparent 65%);
+  filter:blur(2px);opacity:0;animation:moteKick .9s cubic-bezier(.65,0,.35,1) forwards}
+@keyframes moteKick{
+  0%{opacity:0;transform:translate(0,-50%) scale(.6)}
+  6%{opacity:.9;transform:translate(0,-50%) scale(1)}
+  22%{opacity:0;transform:translate(6px,-70%) scale(1.5)}
+  100%{opacity:0}
+}
 .stats-bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--paper);height:var(--nav-h);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 clamp(18px,4vw,56px);transition:box-shadow .3s}
 .stats-bar.scrolled{box-shadow:0 1px 0 var(--rule)}
 .back{appearance:none;border:0;background:transparent;display:inline-flex;align-items:center;gap:10px;padding:8px 0;font:700 12px var(--sans);letter-spacing:.14em;color:var(--ink);position:relative}

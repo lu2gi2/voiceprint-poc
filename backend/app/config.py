@@ -1,9 +1,18 @@
+import secrets
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# Only used if SECRET_KEY is unset, so `uvicorn app.main:app` still just runs
+# with no .env. Regenerated every process start in that case, which means
+# every previously issued session token stops verifying on restart — fine
+# for local dev, not for anything long-lived. A real deploy (Catalyst
+# AppSail included) must set SECRET_KEY explicitly.
+_FALLBACK_SECRET_KEY = secrets.token_hex(32)
 
 
 class Settings(BaseSettings):
@@ -66,11 +75,33 @@ class Settings(BaseSettings):
     # generation (redacted resume text, never audio). None of it is required
     # for the app to start; a session just cannot generate resume-driven
     # questions without it.
+    #
+    # Routed through OpenRouter rather than DeepSeek's own API — same model,
+    # OpenRouter is OpenAI-API-compatible so only the base URL and the
+    # provider-prefixed model name change; deepseek.py's request shape is
+    # untouched. DEEPSEEK_API_KEY is now an OpenRouter key, not a DeepSeek one.
     deepseek_api_key: str | None = None
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://openrouter.ai/api/v1"
+    deepseek_model: str = "deepseek/deepseek-chat"
+
+    # Signs session tokens (see auth.py's create_token/decode_token). Falls
+    # back to a random value generated once per process if unset, so login
+    # still works with zero setup locally — but every token becomes invalid
+    # on the next restart, and two processes (e.g. multiple AppSail
+    # instances) would not accept each other's tokens. Set explicitly for
+    # anything beyond a single local dev process.
+    secret_key: str | None = None
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.secret_key is None:
+        warnings.warn(
+            "SECRET_KEY is not set — session tokens are signed with a key generated "
+            "for this process only and will stop verifying on restart. Set SECRET_KEY "
+            "before deploying anywhere beyond a single local dev process.",
+            stacklevel=2,
+        )
+        settings.secret_key = _FALLBACK_SECRET_KEY
+    return settings

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pin, Tape, Underline, Pencil } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
 import { BAND_RAMP, BOARD } from '../lib/viz';
@@ -8,21 +8,48 @@ import {
   nextRecommendation,
 } from '../data/students';
 import { college, lastIntervention } from '../data/admin';
+import { getAdminOverview, getAdminBands, getAdminWorklist } from '../lib/api';
 
-/* Everything on this page is computed from the student roll — the band totals
-   are the students in them, the department averages are their students'
-   averages. Nothing here is a number typed in to agree with a chart. */
-const stats = collegeStats();
-const bands = bandStats();
-const departments = departmentStats();
-const collegeDimensions = dimensionStats();
-const dormant = dormantStats();
-const work = worklist(10);
 const recommendation = nextRecommendation();
+
+/* Real, live-fetched roster data (app/api/admin.py) once it loads, falling
+   back to the fixture generator's sample cohort until then - same "sample
+   data until there's real data" convention the rest of the app uses.
+   `recommendation`/`lastIntervention` stay fixture-only: a real training
+   recommendation and a real past intervention's before/after both need
+   data this backend doesn't have yet (see app/api/admin.py's own note on
+   why "last intervention" isn't built). */
+function useAdminData() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [overview, bands, work] = await Promise.all([
+          getAdminOverview(), getAdminBands(), getAdminWorklist({ limit: 10 }),
+        ]);
+        if (!cancelled) setData({ overview, bands, work });
+      } catch {
+        // fixture fallback already covers a blip or an unreachable backend
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return data;
+}
+
+const FALLBACK = {
+  stats: collegeStats(),
+  bands: bandStats(),
+  departments: departmentStats(),
+  collegeDimensions: dimensionStats(),
+  dormant: dormantStats(),
+  work: worklist(10),
+};
 
 /* ---------- Headline numbers, on paper slips ---------- */
 
-function Headline() {
+function Headline({ stats }) {
   const tiles = [
     { lab: 'STUDENTS', val: stats.totalStudents, sub: `across ${stats.departments} departments`, rot: -1.4, pin: '#3E6FA0' },
     { lab: 'OVERALL READINESS', val: `${stats.overallReadiness}%`, sub: `mean of every student's score`, rot: 1.2, tape: true },
@@ -45,7 +72,7 @@ function Headline() {
 
 /* ---------- The board: where the college stands ---------- */
 
-function CollegeBoard() {
+function CollegeBoard({ departments, collegeDimensions }) {
   const weakest = collegeDimensions[collegeDimensions.length - 1];
   const strongest = collegeDimensions[0];
   const maxDept = Math.max(...departments.map((d) => d.readiness));
@@ -114,7 +141,7 @@ function CollegeBoard() {
 
 /* ---------- Readiness bands ---------- */
 
-function Bands({ onPick, active }) {
+function Bands({ bands, onPick, active }) {
   return (
     <section className="bands-wrap" aria-labelledby="bandsH">
       <div className="bands-in">
@@ -153,7 +180,7 @@ function Bands({ onPick, active }) {
 
 /* ---------- The worklist ---------- */
 
-function Worklist() {
+function Worklist({ work }) {
   const rows = work;
 
   return (
@@ -199,7 +226,7 @@ function Worklist() {
 
 /* ---------- Blind spot + what to run next + did it work ---------- */
 
-function Actions() {
+function Actions({ dormant }) {
   const lift = lastIntervention.afterAvg - lastIntervention.beforeAvg;
 
   return (
@@ -270,9 +297,41 @@ function Actions() {
 
 /* ---------- Page ---------- */
 
+/** Real API shapes -> the field names every sub-component above already
+ *  reads (unchanged from when they only ever read the fixture generator),
+ *  so this is the one place real vs. sample data gets reconciled. */
+function toViewModel({ overview, bands, work }) {
+  return {
+    stats: {
+      totalStudents: overview.students_total,
+      departments: overview.departments.length,
+      overallReadiness: overview.overall_readiness,
+      participation: overview.participation_pct,
+      participated: overview.participating,
+      needIntervention: overview.need_intervention,
+    },
+    departments: overview.departments,
+    // Fixture convention: strongest first, weakest last - the real
+    // endpoint returns weakest-first (see admin.py), so reverse here.
+    collegeDimensions: [...overview.dimensions].reverse().map((d) => ({ name: d.name, score: d.avg })),
+    bands: bands.map((b, i) => ({ ...b, step: i })),
+    dormant: {
+      count: overview.dormant.count,
+      pctOfCollege: overview.dormant.pct_of_college,
+      neverStarted: overview.dormant.never_started,
+      overThirtyDays: overview.dormant.over_dormant_days,
+      byDept: [...overview.dormant.by_department].sort((a, b) => b.count - a.count),
+    },
+    work: work.map((w) => ({ ...w, daysSince: w.days_since, nextBand: w.next_band })),
+  };
+}
+
 export default function AdminPage({ user, onSignOut }) {
   const scrolled = useScrolled();
   const [openBand, setOpenBand] = useState(null);
+  const real = useAdminData();
+  const vm = real ? toViewModel(real) : FALLBACK;
+  const { stats, departments, collegeDimensions, bands, dormant, work } = vm;
 
   return (
     <div className="stats admin">
@@ -302,12 +361,12 @@ export default function AdminPage({ user, onSignOut }) {
           </p>
         </div>
 
-        <Headline />
-        <CollegeBoard />
-        <Bands onPick={setOpenBand} active={openBand?.key} />
+        <Headline stats={stats} />
+        <CollegeBoard departments={departments} collegeDimensions={collegeDimensions} />
+        <Bands bands={bands} onPick={setOpenBand} active={openBand?.key} />
         {openBand && <BandRegister band={openBand} onClose={() => setOpenBand(null)} />}
-        <Worklist />
-        <Actions />
+        <Worklist work={work} />
+        <Actions dormant={dormant} />
       </main>
     </div>
   );

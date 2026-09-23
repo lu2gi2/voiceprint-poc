@@ -11,8 +11,6 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "@vitejs/plugin-react": "latest",
-    "mammoth": "^1.12.3",
-    "pdfjs-dist": "^6.3.289",
     "react": "latest",
     "react-dom": "latest",
     "vite": "latest"

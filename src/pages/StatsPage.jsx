@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pencil, Pin, Tape, Underline } from '../components/paper';
 import { useScrolled } from '../hooks/useReveal';
 import DimensionBoard from '../components/charts/DimensionBoard';
 import StarDropoff from '../components/charts/StarDropoff';
 import { diagnose, signed } from '../lib/viz';
+import { getStudentSessions, getSummary } from '../lib/api';
 import {
   student,
   longitudinal,
@@ -13,12 +14,56 @@ import {
   BENCHMARK,
 } from '../data/fixtures';
 
-/* The signed-in student's own dimensions, or the sample roll when there is no
-   session. Worked out once and shared, so no two sections can disagree — and
-   each score is rendered in exactly one place on the page. */
+/* The signed-in student's own dimensions - real, even when that means
+   genuinely empty for a brand-new account (see App.jsx's dataLoaded) - or
+   the sample roll only while we still don't know either way (fetch hasn't
+   resolved, or the backend is unreachable). A fresh account must never see
+   the sample cohort's numbers presented as its own. */
 function skillsFor(user) {
-  if (!user?.history) return longitudinal.skills;
-  return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+  if (user?.dataLoaded) return Object.entries(user.history).map(([name, scores]) => ({ name, scores }));
+  return longitudinal.skills;
+}
+
+const EV_COLORS = ['var(--y)', 'var(--b)', 'var(--g)', 'var(--p)', 'var(--l)'];
+
+/** The most recent completed session's real per-dimension evidence
+ *  (GET /sessions/{id}/summary already carries exactly this shape - label/
+ *  value measurement pairs behind each score) in place of the fixture
+ *  `evidence` array. Cosmetic layout fields (color/rotation/offset) are
+ *  generated rather than hardcoded, since real dimension names/counts vary
+ *  by which tracks the student actually took. */
+function useRealEvidence(user) {
+  const [real, setReal] = useState(null);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await getStudentSessions(user.id, { limit: 5 });
+        const latestComplete = sessions.find((s) => s.status === 'complete');
+        if (!latestComplete) { if (!cancelled) setReal([]); return; }
+        const summary = await getSummary(latestComplete.id);
+        if (cancelled) return;
+        if (!summary.dimensions?.length) { setReal([]); return; }
+        setReal(summary.dimensions.map((d, i) => ({
+          key: d.dimension.toLowerCase().replace(/\s+/g, '-'),
+          title: d.dimension.toUpperCase(),
+          score: d.value,
+          c: EV_COLORS[i % EV_COLORS.length],
+          rot: i % 2 ? 1.8 : -2.2,
+          dy: (i % 3) * 14,
+          measures: (d.evidence || []).map((e) => [e.label, e.value]),
+          fix: d.recommendation,
+        })));
+      } catch {
+        // fixture fallback already covers a blip or an unreachable backend
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  return real;
 }
 
 /* ---------- The board: where you stand, and how you got here ---------- */
@@ -57,7 +102,7 @@ function StandingBoard({ dims, behind }) {
 
 /* ---------- Evidence behind each score (PRD §7) ---------- */
 
-function EvidenceWall() {
+function EvidenceWall({ items }) {
   return (
     <>
       <div className="rail" aria-hidden="true" />
@@ -76,7 +121,7 @@ function EvidenceWall() {
           </div>
 
           <div className="ev-grid">
-            {evidence.map((e, i) => (
+            {items.map((e, i) => (
               <article key={e.key} className="ev-note"
                 style={{ '--c': e.c, '--rot': `${e.rot}deg`, '--dy': `${e.dy}px` }}>
                 {i % 2 ? <Tape rotate={i % 4 === 1 ? 3 : -4} /> : <Pin color="#C0483E" />}
@@ -173,10 +218,13 @@ function CoachingPlan({ onPractice, worst }) {
 
 export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
   const scrolled = useScrolled();
-  const dims = diagnose(skillsFor(user), BENCHMARK);   // weakest first
+  const realEvidence = useRealEvidence(user);
+  const skills = skillsFor(user);
+  const isEmpty = user?.dataLoaded && skills.length === 0;
+  const dims = isEmpty ? [] : diagnose(skills, BENCHMARK);   // weakest first
   const worst = dims[0];
   const best = dims[dims.length - 1];
-  const biggestGain = dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
+  const biggestGain = isEmpty ? null : dims.reduce((a, b) => (a.delta >= b.delta ? a : b));
   const behind = dims.filter((d) => !d.ahead).length;
 
   return (
@@ -189,24 +237,44 @@ export default function StatsPage({ onBack, onPractice, practiceCount, user }) {
       </header>
 
       <main id="main">
-        <div className="stats-head">
-          <p className="eyebrow">THE FULL REPORT</p>
-          <h1>
-            Strongest at {best.name.toLowerCase()}. Weakest at {worst.name.toLowerCase()}.
-            <Underline stroke="#C0483E" />
-          </h1>
-          <p className="lede">
-            Pulled from {practiceCount} assessments. {best.name} has cleared the target;
-            {' '}{worst.name.toLowerCase()} is {Math.abs(worst.gap)} points short and is what
-            the plan below plays for. Biggest mover so far: {biggestGain.name}{' '}
-            {signed(biggestGain.delta)}.
-          </p>
-        </div>
+        {isEmpty ? (
+          <div className="stats-head">
+            <p className="eyebrow">THE FULL REPORT</p>
+            <h1>
+              Nothing measured yet.
+              <Underline stroke="#C0483E" />
+            </h1>
+            <p className="lede">
+              Take an HR or Technical interview first — this page fills in with your own
+              dimensions, evidence and a plan built from what you actually said, once there's
+              a real round on record. Nothing here is a sample.
+            </p>
+            <button className="chalk-btn" type="button" onClick={onPractice} style={{ marginTop: '1.5rem' }}>
+              START YOUR FIRST INTERVIEW <i>→</i>
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="stats-head">
+              <p className="eyebrow">THE FULL REPORT</p>
+              <h1>
+                Strongest at {best.name.toLowerCase()}. Weakest at {worst.name.toLowerCase()}.
+                <Underline stroke="#C0483E" />
+              </h1>
+              <p className="lede">
+                Pulled from {practiceCount} assessments. {best.name} has cleared the target;
+                {' '}{worst.name.toLowerCase()} is {Math.abs(worst.gap)} points short and is what
+                the plan below plays for. Biggest mover so far: {biggestGain.name}{' '}
+                {signed(biggestGain.delta)}.
+              </p>
+            </div>
 
-        <StandingBoard dims={dims} behind={behind} />
-        <EvidenceWall />
-        <AnswerShape />
-        <CoachingPlan onPractice={onPractice} worst={worst} />
+            <StandingBoard dims={dims} behind={behind} />
+            <EvidenceWall items={user?.dataLoaded ? (realEvidence || []) : evidence} />
+            <AnswerShape />
+            <CoachingPlan onPractice={onPractice} worst={worst} />
+          </>
+        )}
       </main>
     </div>
   );

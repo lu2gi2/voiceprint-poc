@@ -3,7 +3,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.admin import router as admin_router
+from .api.auth import router as auth_router
 from .api.sessions import router as sessions_router
+from .api.students import router as students_router
 from .config import get_settings
 from .db import init_db
 
@@ -30,7 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_router)
+app.include_router(auth_router)
 app.include_router(sessions_router)
+app.include_router(students_router)
 
 
 @app.on_event("startup")

@@ -8,11 +8,28 @@
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// The signed-in account's session token (see backend/app/deps.py). Set once
+// by App.jsx whenever `user` changes, then every call below attaches it
+// automatically — as a `?token=...` query param, not an Authorization
+// header, since a custom header forces a CORS preflight regardless of
+// Content-Type and Catalyst AppSail's gateway drops preflight OPTIONS
+// requests (the same reason POST bodies here are sent as text/plain).
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token || null;
+}
+
+function withToken(path) {
+  if (!authToken) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(authToken)}`;
+}
+
 async function req(path, options = {}, { timeout = 15000 } = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const res = await fetch(`${BASE}${path}`, { ...options, signal: ctrl.signal });
+    const res = await fetch(`${BASE}${withToken(path)}`, { ...options, signal: ctrl.signal });
     if (!res.ok) {
       let detail = '';
       try {
@@ -57,12 +74,40 @@ export async function checkHealth() {
   }
 }
 
-export async function createSession({ student, assessment }) {
+// None of the POST calls below set an explicit Content-Type: application/
+// json header. The browser then defaults to text/plain for a string body,
+// which keeps these CORS "simple requests" (no preflight OPTIONS) — Catalyst
+// AppSail's gateway currently swallows preflight OPTIONS requests before they
+// reach the app container, so avoiding preflight entirely is the workaround
+// until that's fixed. The matching backend handlers parse the body manually
+// to match (see api/auth.py, api/sessions.py) since FastAPI's automatic JSON
+// parsing only kicks in for Content-Type: application/json.
+
+/** Student or admin login. Throws (with err.status/err.detail set by req())
+ *  on a 401 — the caller renders that as the form's error, same generic
+ *  message for "no such account" and "wrong password" that the backend
+ *  already enforces (see api/auth.py). */
+export async function login({ role, username, password }) {
+  return req('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ role, username, password }),
+  });
+}
+
+/** Student self-registration (admins are issued, not self-served - see
+ *  AuthPage.jsx). Throws on 409 if the roll number/email is already taken. */
+export async function registerStudent({ rollNumber, email, name, password }) {
+  return req('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ roll_number: rollNumber, email, name, password }),
+  });
+}
+
+export async function createSession({ studentId, assessment }) {
   return req('/api/sessions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      student: { email: student.email, name: student.name },
+      student_id: studentId,
       assessment_id: assessment.id,
       assessment_title: assessment.title,
     }),
@@ -92,7 +137,7 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
 export async function uploadResume(sessionId, file) {
   const form = new FormData();
   form.append('resume', file, file.name);
-  const res = await fetch(`${BASE}/api/sessions/${sessionId}/resume`, { method: 'POST', body: form });
+  const res = await fetch(`${BASE}${withToken(`/api/sessions/${sessionId}/resume`)}`, { method: 'POST', body: form });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
   return body;
@@ -100,6 +145,13 @@ export async function uploadResume(sessionId, file) {
 
 export async function getResume(sessionId) {
   return req(`/api/sessions/${sessionId}/resume`);
+}
+
+/** Reuse this student's existing profile resume (ProfileDrawer.jsx) for
+ *  this session instead of uploading again. Throws (404) if they don't
+ *  have a ready one on file yet — the caller falls back to uploadResume. */
+export async function useProfileResumeForSession(sessionId) {
+  return req(`/api/sessions/${sessionId}/resume/from-profile`, { method: 'POST' });
 }
 
 /** Wait for the resume's background pipeline (DeepSeek question generation +
@@ -124,7 +176,7 @@ export async function getQuestions(sessionId) {
 }
 
 export function questionAudioUrl(sessionId, index) {
-  return `${BASE}/api/sessions/${sessionId}/questions/${index}/audio`;
+  return `${BASE}${withToken(`/api/sessions/${sessionId}/questions/${index}/audio`)}`;
 }
 
 /** Wait for question `index` to exist — the adaptive next-question step runs
@@ -202,4 +254,76 @@ export async function pollSummary(sessionId, { onTick, timeoutMs = 180000, every
     await new Promise((r) => setTimeout(r, everyMs));
   }
   return last;
+}
+
+/* ---------- Student profile ---------- */
+
+export async function getStudentProfile(studentId) {
+  return req(`/api/students/${studentId}`);
+}
+
+/** Recent-activity feed behind JourneyPage's RECENT fixture list. */
+export async function getStudentSessions(studentId, { limit = 10 } = {}) {
+  return req(`/api/students/${studentId}/sessions?limit=${limit}`);
+}
+
+/** Real per-dimension score history behind StatsPage's user.history. */
+export async function getStudentHistory(studentId) {
+  return req(`/api/students/${studentId}/history`);
+}
+
+/** One resume per student profile - replaces ProfileDrawer.jsx's old
+ *  localStorage-only upload. Throws with the backend's rejection reason on
+ *  400/422/413 (failed local checks) so the caller can show it. A 202 means
+ *  "processing" - poll getStudentResume for the real outcome. */
+export async function uploadStudentResume(studentId, file) {
+  const form = new FormData();
+  form.append('resume', file, file.name);
+  const res = await fetch(`${BASE}${withToken(`/api/students/${studentId}/resume`)}`, { method: 'POST', body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  return body;
+}
+
+export async function getStudentResume(studentId) {
+  return req(`/api/students/${studentId}/resume`);
+}
+
+export async function deleteStudentResume(studentId) {
+  return req(`/api/students/${studentId}/resume`, { method: 'DELETE' });
+}
+
+/** Wait for the profile resume's background analysis (DeepSeek sticky-note
+ *  generation) to reach a terminal state: ready | rejected | failed. */
+export async function pollStudentResume(studentId, { onTick, timeoutMs = 60000, everyMs = 2000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const r = await getStudentResume(studentId);
+      onTick?.(r);
+      if (r.status !== 'processing') return r;
+    } catch {
+      // a blip mid-poll should not strand the screen; keep trying
+    }
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+  return null;
+}
+
+/* ---------- Admin portal ---------- */
+
+export async function getAdminOverview() {
+  return req('/api/admin/overview');
+}
+
+export async function getAdminBands() {
+  return req('/api/admin/bands');
+}
+
+export async function getAdminBandRoster(bandKey) {
+  return req(`/api/admin/bands/${bandKey}`);
+}
+
+export async function getAdminWorklist({ limit = 10 } = {}) {
+  return req(`/api/admin/worklist?limit=${limit}`);
 }

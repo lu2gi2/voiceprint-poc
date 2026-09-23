@@ -21,16 +21,28 @@ const fade = (a, b, ch = 'g', extra = '') => ({
 });
 
 /** The student's own overall trajectory — the mean of their dimension
- *  histories — falling back to the sample roll when nobody is signed in.
+ *  histories — falling back to the sample roll only while we genuinely
+ *  don't know yet (fetch not resolved, backend unreachable). A dataLoaded
+ *  account with nothing to show gets a real empty result {data:[]}, never
+ *  the sample cohort's numbers.
  *  Exported so the caption above the graph can count the same points it draws
  *  rather than asserting a number of its own. */
 export function trajectory(user) {
-  if (!user?.history) return growth;
-  const dims = Object.values(user.history);
-  const n = dims[0].length;
-  const data = Array.from({ length: n }, (_, i) =>
-    Math.round(dims.reduce((a, h) => a + h[i], 0) / dims.length));
-  return { data, labels: data.map((_, i) => (i === n - 1 ? 'today' : String(i + 1))) };
+  if (!user?.dataLoaded) return growth;
+  const dims = Object.values(user.history).filter((h) => h.length > 0);
+  if (!dims.length) return { data: [], labels: [] };
+  // Real dimensions get scored on different tracks at different times, so
+  // their histories are not guaranteed the same length the fixture's were —
+  // average only over the dimensions that actually have a value at each
+  // point, most-recent-aligned (index counted from the end).
+  const n = Math.max(...dims.map((h) => h.length));
+  const data = Array.from({ length: n }, (_, iFromStart) => {
+    const i = n - 1 - iFromStart;
+    const atPoint = dims.map((h) => h[h.length - 1 - i]).filter((v) => v != null);
+    if (!atPoint.length) return null;
+    return Math.round(atPoint.reduce((a, v) => a + v, 0) / atPoint.length);
+  }).filter((v) => v != null);
+  return { data, labels: data.map((_, i) => (i === data.length - 1 ? 'today' : String(i + 1))) };
 }
 
 export default function GrowthGraph({ user }) {
@@ -43,6 +55,14 @@ export default function GrowthGraph({ user }) {
   const B = m ? 46 : 48;
 
   const { data, labels } = trajectory(user);
+
+  if (data.length === 0) {
+    return (
+      <div className="g-empty">
+        <p>No practice recorded yet. Complete an interview to start your growth line.</p>
+      </div>
+    );
+  }
 
   // Seeded so the wobble is identical on every render at a given breakpoint.
   // The call ORDER below must not change or the strokes shift.
