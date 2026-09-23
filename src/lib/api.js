@@ -8,11 +8,28 @@
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// The signed-in account's session token (see backend/app/deps.py). Set once
+// by App.jsx whenever `user` changes, then every call below attaches it
+// automatically — as a `?token=...` query param, not an Authorization
+// header, since a custom header forces a CORS preflight regardless of
+// Content-Type and Catalyst AppSail's gateway drops preflight OPTIONS
+// requests (the same reason POST bodies here are sent as text/plain).
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token || null;
+}
+
+function withToken(path) {
+  if (!authToken) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(authToken)}`;
+}
+
 async function req(path, options = {}, { timeout = 15000 } = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const res = await fetch(`${BASE}${path}`, { ...options, signal: ctrl.signal });
+    const res = await fetch(`${BASE}${withToken(path)}`, { ...options, signal: ctrl.signal });
     if (!res.ok) {
       let detail = '';
       try {
@@ -120,7 +137,7 @@ export async function uploadAnswer(sessionId, { index, prompt, target, blob, mim
 export async function uploadResume(sessionId, file) {
   const form = new FormData();
   form.append('resume', file, file.name);
-  const res = await fetch(`${BASE}/api/sessions/${sessionId}/resume`, { method: 'POST', body: form });
+  const res = await fetch(`${BASE}${withToken(`/api/sessions/${sessionId}/resume`)}`, { method: 'POST', body: form });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
   return body;
@@ -159,7 +176,7 @@ export async function getQuestions(sessionId) {
 }
 
 export function questionAudioUrl(sessionId, index) {
-  return `${BASE}/api/sessions/${sessionId}/questions/${index}/audio`;
+  return `${BASE}${withToken(`/api/sessions/${sessionId}/questions/${index}/audio`)}`;
 }
 
 /** Wait for question `index` to exist — the adaptive next-question step runs
@@ -262,7 +279,7 @@ export async function getStudentHistory(studentId) {
 export async function uploadStudentResume(studentId, file) {
   const form = new FormData();
   form.append('resume', file, file.name);
-  const res = await fetch(`${BASE}/api/students/${studentId}/resume`, { method: 'POST', body: form });
+  const res = await fetch(`${BASE}${withToken(`/api/students/${studentId}/resume`)}`, { method: 'POST', body: form });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
   return body;

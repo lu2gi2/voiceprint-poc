@@ -10,7 +10,7 @@ import NoteDetailDialog from './components/NoteDetailDialog';
 import PracticeDialog from './components/PracticeDialog';
 import { student, RECENT, PRACTICE_QUESTIONS } from './data/fixtures';
 import { byId } from './data/assessments';
-import { getStudentProfile, getStudentSessions, getStudentHistory } from './lib/api';
+import { getStudentProfile, getStudentSessions, getStudentHistory, setAuthToken } from './lib/api';
 
 /* No router — the POC is a small set of views: the journey page, the full
    report behind the blackboard, the assessment picker, and a live session. */
@@ -93,6 +93,12 @@ export default function App() {
   const [showWipe, setShowWipe] = useState(false); // the eraser-wipe transition overlay
   const [view, setView] = useState('journey');
   const [practiceCount, setPracticeCount] = useState(student.practices);
+
+  // Every authenticated api.js call needs this student/admin's session token
+  // (see deps.py) - kept in sync here rather than threaded through every
+  // page/component that calls the API. Must run before the hydration effect
+  // below so that effect's fetches are already authenticated.
+  useEffect(() => { setAuthToken(user?.token); }, [user?.token]);
 
   // Adopt the signed-in student's own session count once they arrive.
   useEffect(() => { if (user?.sessions != null) setPracticeCount(user.sessions); }, [user]);

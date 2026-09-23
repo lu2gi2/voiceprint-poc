@@ -135,6 +135,10 @@ export default function AuthPage({ onAuthed }) {
     username: account.username,
     roll: account.roll_number,
     roll_number: account.roll_number,
+    // Session token (see deps.py) - every authenticated request after this
+    // carries it as ?token=..., so it has to survive onto the `user` object
+    // that gets persisted to localStorage and threaded through api.js calls.
+    token: account.token,
   });
 
   const submit = async (e) => {

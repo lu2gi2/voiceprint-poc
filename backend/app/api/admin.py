@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
+from ..deps import require_admin
 from ..models import InterviewSession, Student, StudentDimensionScore
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -96,7 +97,7 @@ def _dormant_students(db: DbSession, students: list[Student]) -> tuple[list[Stud
 
 
 @router.get("/overview")
-def get_overview(db: DbSession = Depends(get_db)) -> dict:
+def get_overview(db: DbSession = Depends(get_db), _=Depends(require_admin)) -> dict:
     students = db.query(Student).filter(Student.department.isnot(None)).all()
     latest = _latest_dimension_values(db)
     overall = _overall_scores(latest)
@@ -157,7 +158,7 @@ def get_overview(db: DbSession = Depends(get_db)) -> dict:
 
 
 @router.get("/bands")
-def get_bands(db: DbSession = Depends(get_db)) -> list[dict]:
+def get_bands(db: DbSession = Depends(get_db), _=Depends(require_admin)) -> list[dict]:
     students = db.query(Student).filter(Student.department.isnot(None)).all()
     overall = _overall_scores(_latest_dimension_values(db))
     scored = [s for s in students if s.id in overall]
@@ -174,7 +175,7 @@ def get_bands(db: DbSession = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/bands/{key}")
-def get_band_roster(key: str, db: DbSession = Depends(get_db)) -> list[dict]:
+def get_band_roster(key: str, db: DbSession = Depends(get_db), _=Depends(require_admin)) -> list[dict]:
     if key not in {b["key"] for b in BANDS}:
         raise HTTPException(404, "unknown band")
 
@@ -200,7 +201,7 @@ def get_band_roster(key: str, db: DbSession = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/worklist")
-def get_worklist(limit: int = 10, db: DbSession = Depends(get_db)) -> list[dict]:
+def get_worklist(limit: int = 10, db: DbSession = Depends(get_db), _=Depends(require_admin)) -> list[dict]:
     """Closest to moving up a band, dealt out one department at a time so
     ten students from a single department at the same mark can't crowd out
     everyone else - same shape as the old students.js worklist(), now

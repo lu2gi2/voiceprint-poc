@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
+from ..deps import CurrentAccount, get_current_account, require_answer_owner, require_session_owner
 from ..llm.tracks import TRACKS
 from ..models import Answer, InterviewSession, Resume, SessionQuestion, Student, StudentResume
 from ..pipeline import process_answer
@@ -41,21 +42,30 @@ def _suffix(mime: str) -> str:
 
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
-async def create_session(request: Request, db: DbSession = Depends(get_db)) -> InterviewSession:
+async def create_session(
+    request: Request,
+    db: DbSession = Depends(get_db),
+    account: CurrentAccount = Depends(get_current_account),
+) -> InterviewSession:
     """Open a session for an already-registered, already-authenticated
     student (see api/auth.py). Used to upsert a Student from whatever name/
     email the request body claimed - identity by assertion, no password
-    involved - now that real accounts exist, session creation trusts
-    student_id instead.
+    involved - now that real accounts exist, session creation requires the
+    caller's own token and checks it matches the student_id in the body
+    (see deps.py) rather than trusting either alone.
 
     Body parsed manually rather than via `payload: SessionCreate` directly —
     FastAPI's automatic JSON parsing keys off `Content-Type: application/
     json`, but the client deliberately omits that header so the browser
     sends this as a CORS "simple request" (no preflight OPTIONS). Catalyst
     AppSail's gateway swallows preflight OPTIONS requests before they reach
-    the container, so avoiding preflight entirely is the workaround.
+    the container, so avoiding preflight entirely is the workaround. The
+    session token travels the same way, as a `?token=...` query param
+    rather than an Authorization header, which would force a preflight too.
     """
     payload = SessionCreate.model_validate_json(await request.body())
+    if account.role != "student" or account.id != payload.student_id:
+        raise HTTPException(403, "not authorized to create a session for this student")
     if db.get(Student, payload.student_id) is None:
         raise HTTPException(404, "student not found")
 
@@ -80,6 +90,7 @@ async def upload_answer(
     audio: UploadFile = File(...),
     engagement_signals: str | None = Form(None),
     db: DbSession = Depends(get_db),
+    session: InterviewSession = Depends(require_session_owner),
 ) -> dict:
     """Accept one recorded answer and queue it for analysis.
 
@@ -93,10 +104,6 @@ async def upload_answer(
     see useEngagementSignals.js) sent as a JSON string form field — no video
     ever reaches the backend. Absent for every other track.
     """
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
-
     data = await audio.read()
     if not data:
         raise HTTPException(400, "empty audio upload")
@@ -137,6 +144,7 @@ async def upload_resume(
     background: BackgroundTasks,
     resume: UploadFile = File(...),
     db: DbSession = Depends(get_db),
+    session: InterviewSession = Depends(require_session_owner),
 ) -> Resume:
     """Upload a resume for a resume-driven track — and, in the same call,
     save it as this student's profile resume (StudentResume) so later
@@ -154,10 +162,6 @@ async def upload_resume(
     from a temp file and discarded; only the extracted text is kept, since
     that (redacted) is what the question-generation call needs.
     """
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
-
     suffix = Path(resume.filename or "").suffix.lower()
     if suffix not in RESUME_SUFFIXES:
         raise HTTPException(400, f"unsupported file type: {suffix or '(none)'} — upload a PDF or docx")
@@ -222,15 +226,16 @@ def _get_profile_resume_id(db: DbSession, student_id: int) -> int:
 
 
 @router.post("/sessions/{session_id}/resume/from-profile", response_model=ResumeOut, status_code=202)
-def use_profile_resume(session_id: int, background: BackgroundTasks, db: DbSession = Depends(get_db)) -> Resume:
+def use_profile_resume(
+    session_id: int,
+    background: BackgroundTasks,
+    db: DbSession = Depends(get_db),
+    session: InterviewSession = Depends(require_session_owner),
+) -> Resume:
     """Skip the upload entirely and reuse this student's existing profile
     resume (StudentResume) for this session — the "you already have one on
     file" path. 404 if there is no ready profile resume; the frontend falls
     back to the normal upload flow in that case."""
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
-
     profile = db.query(StudentResume).filter(StudentResume.student_id == session.student_id).one_or_none()
     if profile is None or profile.status != "ready":
         raise HTTPException(404, "no profile resume on file")
@@ -244,7 +249,9 @@ def use_profile_resume(session_id: int, background: BackgroundTasks, db: DbSessi
 
 
 @router.get("/sessions/{session_id}/resume", response_model=ResumeOut)
-def get_resume(session_id: int, db: DbSession = Depends(get_db)) -> Resume:
+def get_resume(
+    session_id: int, db: DbSession = Depends(get_db), session: InterviewSession = Depends(require_session_owner)
+) -> Resume:
     resume = db.query(Resume).filter(Resume.session_id == session_id).one_or_none()
     if resume is None:
         raise HTTPException(404, "no resume uploaded for this session")
@@ -252,15 +259,19 @@ def get_resume(session_id: int, db: DbSession = Depends(get_db)) -> Resume:
 
 
 @router.get("/sessions/{session_id}/questions", response_model=list[QuestionOut])
-def get_questions(session_id: int, db: DbSession = Depends(get_db)) -> list[SessionQuestion]:
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
+def get_questions(
+    session_id: int, db: DbSession = Depends(get_db), session: InterviewSession = Depends(require_session_owner)
+) -> list[SessionQuestion]:
     return session.questions
 
 
 @router.get("/sessions/{session_id}/questions/{index}/audio")
-def get_question_audio(session_id: int, index: int, db: DbSession = Depends(get_db)) -> FileResponse:
+def get_question_audio(
+    session_id: int,
+    index: int,
+    db: DbSession = Depends(get_db),
+    session: InterviewSession = Depends(require_session_owner),
+) -> FileResponse:
     q = (
         db.query(SessionQuestion)
         .filter(SessionQuestion.session_id == session_id, SessionQuestion.question_index == index)
@@ -296,22 +307,19 @@ def _save_resume(
 
 
 @router.get("/answers/{answer_id}", response_model=AnswerOut)
-def get_answer(answer_id: int, db: DbSession = Depends(get_db)) -> Answer:
+def get_answer(answer_id: int, answer: Answer = Depends(require_answer_owner)) -> Answer:
     """One answer on its own, so the session screen can poll for the transcript
     of the question just answered without refetching the whole session."""
-    answer = db.get(Answer, answer_id)
-    if answer is None:
-        raise HTTPException(404, "answer not found")
     return answer
 
 
 @router.post("/sessions/{session_id}/complete", response_model=SessionOut)
 def complete_session(
-    session_id: int, background: BackgroundTasks, db: DbSession = Depends(get_db),
+    session_id: int,
+    background: BackgroundTasks,
+    db: DbSession = Depends(get_db),
+    session: InterviewSession = Depends(require_session_owner),
 ) -> InterviewSession:
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
     session.status = "complete"
     session.completed_at = datetime.now(timezone.utc)
 
@@ -339,24 +347,19 @@ def complete_session(
 
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)
-def get_session(session_id: int, db: DbSession = Depends(get_db)) -> InterviewSession:
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
+def get_session(session_id: int, session: InterviewSession = Depends(require_session_owner)) -> InterviewSession:
     return session
 
 
 @router.get("/sessions/{session_id}/summary", response_model=SessionSummary)
-def get_summary(session_id: int, db: DbSession = Depends(get_db)) -> SessionSummary:
+def get_summary(
+    session_id: int, session: InterviewSession = Depends(require_session_owner)
+) -> SessionSummary:
     """Per-dimension rollup across the session — what the results screen shows.
 
     Averaged over answers that finished, so a session is readable while the
     tail is still transcribing rather than blank until everything lands.
     """
-    session = db.get(InterviewSession, session_id)
-    if session is None:
-        raise HTTPException(404, "session not found")
-
     buckets: dict[str, list[dict]] = defaultdict(list)
     ready = failed = 0
     total_seconds = 0.0

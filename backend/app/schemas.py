@@ -27,6 +27,9 @@ class AccountOut(BaseModel):
     roll_number: str | None = None
     email: str | None = None
     username: str | None = None
+    # Session token - see deps.py. Sent back as ?token=... / a body field on
+    # every later request, not an Authorization header (CORS preflight).
+    token: str
 
 
 class DimensionScoreOut(BaseModel):

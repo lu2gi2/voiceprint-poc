@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 from sqlalchemy.orm import Session as DbSession
 
 from ..db import get_db
+from ..deps import require_self_or_admin
 from ..models import InterviewSession, Student, StudentDimensionScore, StudentResume
 from ..resume import ExtractError, check_resume_shape, extract_text
 from ..schemas import SessionListItemOut, StudentHistoryOut, StudentProfileOut, StudentResumeOut
@@ -17,7 +18,9 @@ MAX_RESUME_BYTES = 10 * 1024 * 1024
 
 
 @router.get("/{student_id}", response_model=StudentProfileOut)
-def get_student_profile(student_id: int, db: DbSession = Depends(get_db)) -> StudentProfileOut:
+def get_student_profile(
+    student_id: int, db: DbSession = Depends(get_db), _=Depends(require_self_or_admin)
+) -> StudentProfileOut:
     """The core profile fields StudentIntro.jsx/ProfileDrawer.jsx read -
     previously always src/data/fixtures.js's single hardcoded `student`
     object regardless of who was actually signed in."""
@@ -42,7 +45,9 @@ def get_student_profile(student_id: int, db: DbSession = Depends(get_db)) -> Stu
 
 
 @router.get("/{student_id}/sessions", response_model=list[SessionListItemOut])
-def get_student_sessions(student_id: int, limit: int = 10, db: DbSession = Depends(get_db)) -> list[SessionListItemOut]:
+def get_student_sessions(
+    student_id: int, limit: int = 10, db: DbSession = Depends(get_db), _=Depends(require_self_or_admin)
+) -> list[SessionListItemOut]:
     """Real recent-activity feed behind JourneyPage's RECENT fixture list.
     Newest first; total_seconds/answers_count are computed here rather than
     stored, since they are cheap and would otherwise need to stay in sync
@@ -73,7 +78,9 @@ def get_student_sessions(student_id: int, limit: int = 10, db: DbSession = Depen
 
 
 @router.get("/{student_id}/history", response_model=StudentHistoryOut)
-def get_student_history(student_id: int, db: DbSession = Depends(get_db)) -> StudentHistoryOut:
+def get_student_history(
+    student_id: int, db: DbSession = Depends(get_db), _=Depends(require_self_or_admin)
+) -> StudentHistoryOut:
     """Real per-dimension history behind StatsPage's user.history, which is
     fixture data today (src/data/students.js). One row per dimension per
     completed session's report - see update_student_score() in
@@ -96,6 +103,7 @@ async def upload_student_resume(
     background: BackgroundTasks,
     resume: UploadFile = File(...),
     db: DbSession = Depends(get_db),
+    _=Depends(require_self_or_admin),
 ) -> StudentResume:
     """One resume per student profile, replacing any previous upload -
     backs ProfileDrawer.jsx's resume manager (previously localStorage-only)
@@ -151,7 +159,9 @@ async def upload_student_resume(
 
 
 @router.get("/{student_id}/resume", response_model=StudentResumeOut)
-def get_student_resume(student_id: int, db: DbSession = Depends(get_db)) -> StudentResume:
+def get_student_resume(
+    student_id: int, db: DbSession = Depends(get_db), _=Depends(require_self_or_admin)
+) -> StudentResume:
     resume = db.query(StudentResume).filter(StudentResume.student_id == student_id).one_or_none()
     if resume is None:
         raise HTTPException(404, "no resume uploaded for this student")
@@ -159,7 +169,9 @@ def get_student_resume(student_id: int, db: DbSession = Depends(get_db)) -> Stud
 
 
 @router.delete("/{student_id}/resume")
-def delete_student_resume(student_id: int, db: DbSession = Depends(get_db)) -> dict:
+def delete_student_resume(
+    student_id: int, db: DbSession = Depends(get_db), _=Depends(require_self_or_admin)
+) -> dict:
     # 200 + {}, not 204 - the frontend's req() helper always parses a JSON
     # body, and a 204 has none.
     resume = db.query(StudentResume).filter(StudentResume.student_id == student_id).one_or_none()

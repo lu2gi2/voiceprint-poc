@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session as DbSession
 
-from ..auth import hash_password, verify_password
+from ..auth import create_token, hash_password, verify_password
+from ..config import get_settings
 from ..db import get_db
 from ..models import Admin, Student
 from ..schemas import AccountOut, LoginRequest, StudentRegister
@@ -35,7 +36,11 @@ async def register_student(request: Request, db: DbSession = Depends(get_db)) ->
     db.add(student)
     db.commit()
     db.refresh(student)
-    return AccountOut(id=student.id, role="student", name=student.name, roll_number=student.roll_number, email=student.email)
+    token = create_token(student.id, "student", get_settings().secret_key)
+    return AccountOut(
+        id=student.id, role="student", name=student.name,
+        roll_number=student.roll_number, email=student.email, token=token,
+    )
 
 
 @router.post("/login", response_model=AccountOut)
@@ -45,9 +50,14 @@ async def login(request: Request, db: DbSession = Depends(get_db)) -> AccountOut
         student = db.query(Student).filter(Student.roll_number == payload.username).one_or_none()
         if student is None or not verify_password(payload.password, student.password_hash):
             raise HTTPException(401, BAD_CREDENTIALS)
-        return AccountOut(id=student.id, role="student", name=student.name, roll_number=student.roll_number, email=student.email)
+        token = create_token(student.id, "student", get_settings().secret_key)
+        return AccountOut(
+            id=student.id, role="student", name=student.name,
+            roll_number=student.roll_number, email=student.email, token=token,
+        )
 
     admin = db.query(Admin).filter(Admin.username == payload.username).one_or_none()
     if admin is None or not verify_password(payload.password, admin.password_hash):
         raise HTTPException(401, BAD_CREDENTIALS)
-    return AccountOut(id=admin.id, role="admin", name=admin.name, username=admin.username)
+    token = create_token(admin.id, "admin", get_settings().secret_key)
+    return AccountOut(id=admin.id, role="admin", name=admin.name, username=admin.username, token=token)
